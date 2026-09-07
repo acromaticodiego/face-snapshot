@@ -29,7 +29,11 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
+# Se comprueba contra 127.0.0.1 y no contra `localhost`: dentro del
+# contenedor, localhost resuelve primero a ::1 (IPv6) y nginx solo
+# escucha en IPv4, asi que la comprobacion daria "connection refused"
+# aunque el servidor este perfectamente sano.
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-  CMD wget -qO- http://localhost/ >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
