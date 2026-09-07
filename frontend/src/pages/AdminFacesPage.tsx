@@ -2,13 +2,14 @@ import {
   ArrowLeft,
   Camera,
   Check,
+  LogOut,
   Search,
   Trash2,
   UserPlus,
   Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import {
@@ -21,9 +22,12 @@ import {
 } from '@/components/ui';
 import { EnrollDialog } from '@/components/EnrollDialog';
 import { api, ApiError, type Person } from '@/lib/api';
+import { adminSession } from '@/lib/auth';
 import { formatDate } from '@/lib/utils';
 
 export function AdminFacesPage() {
+  const navigate = useNavigate();
+  const admin = adminSession.getProfile();
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -115,13 +119,34 @@ export function AdminFacesPage() {
   return (
     <div className="min-h-dvh bg-surface-100 dark:bg-surface-950">
       <div className="mx-auto max-w-4xl px-4 py-8">
-        <Link
-          to="/"
-          className="mb-6 inline-flex items-center gap-1.5 text-sm text-surface-600 transition-colors hover:text-brand-600"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Volver a la autenticación
-        </Link>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 text-sm text-surface-600 transition-colors hover:text-brand-600"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Volver a la autenticación
+          </Link>
+
+          <div className="flex items-center gap-3">
+            {admin && (
+              <span className="text-xs text-surface-600">
+                {admin.displayName}
+              </span>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<LogOut className="h-3.5 w-3.5" />}
+              onClick={() => {
+                adminSession.clear();
+                navigate('/admin/login', { replace: true });
+              }}
+            >
+              Salir
+            </Button>
+          </div>
+        </div>
 
         <header className="mb-6">
           <h1 className="text-2xl font-bold tracking-tight">

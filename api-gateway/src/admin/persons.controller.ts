@@ -11,12 +11,18 @@ import {
   Post,
   Query,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { z } from 'zod';
 
 import {
@@ -25,6 +31,7 @@ import {
 } from '../common/uploaded-image';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { FaceServiceClient } from '../proxy/service-clients';
+import { AdminAuthGuard } from './admin-auth.guard';
 
 const CreatePersonSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
@@ -39,12 +46,14 @@ const UpdatePersonSchema = z.object({
 /**
  * Administración de personas.
  *
- * PENDIENTE DE SEGURIDAD: estas rutas deben quedar detrás del guard de
- * administrador antes de exponer el sistema fuera de la red local. La
- * estructura ya está preparada (ver admin-auth.guard.ts); falta activar
- * el login. Documentado en el README.
+ * Todas las rutas exigen un token de administrador válido, emitido por
+ * el Auth Service tras un inicio de sesión correcto. El guard rechaza
+ * ademas los tokens de sesión de acceso facial: son de otro tipo y no
+ * sirven para administrar.
  */
 @ApiTags('admin/persons')
+@ApiBearerAuth()
+@UseGuards(AdminAuthGuard)
 @Controller('admin/persons')
 export class AdminPersonsController {
   private readonly maxImageBytes: number;

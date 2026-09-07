@@ -81,18 +81,3 @@ model FaceEmbedding {
   @@schema("face_svc")
 }
 
-/// Administradores del panel. Preparado para la autenticación futura.
-model AdminUser {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique @db.VarChar(160)
-  /// Hash argon2id. NUNCA texto plano.
-  passwordHash String   @map("password_hash") @db.VarChar(255)
-  displayName  String   @map("display_name") @db.VarChar(120)
-  isActive     Boolean  @default(true) @map("is_active")
-  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@map("admin_users")
-  @@schema("face_svc")
-}

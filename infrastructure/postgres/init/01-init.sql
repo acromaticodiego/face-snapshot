@@ -16,6 +16,7 @@
 -- ── Schemas ───────────────────────────────────────────────────────
 CREATE SCHEMA IF NOT EXISTS face_svc;
 CREATE SCHEMA IF NOT EXISTS access_svc;
+CREATE SCHEMA IF NOT EXISTS auth_svc;
 
 -- ── pgvector ──────────────────────────────────────────────────────
 --
@@ -52,21 +53,35 @@ BEGIN
       current_setting('custom.access_svc_password', true)
     );
   END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'auth_svc_user') THEN
+    EXECUTE format(
+      'CREATE ROLE auth_svc_user LOGIN PASSWORD %L',
+      current_setting('custom.auth_svc_password', true)
+    );
+  END IF;
 END
 $$;
 
 -- ── Permisos: cada servicio SOLO ve su propio schema ──────────────
 GRANT USAGE, CREATE ON SCHEMA face_svc   TO face_svc_user;
 GRANT USAGE, CREATE ON SCHEMA access_svc TO access_svc_user;
+GRANT USAGE, CREATE ON SCHEMA auth_svc   TO auth_svc_user;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA face_svc
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO face_svc_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA access_svc
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO access_svc_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA auth_svc
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_svc_user;
 
 -- Denegar explícitamente el acceso cruzado.
-REVOKE ALL ON SCHEMA access_svc FROM face_svc_user;
-REVOKE ALL ON SCHEMA face_svc   FROM access_svc_user;
+--
+-- Importa especialmente para auth_svc: ningun otro servicio debe poder
+-- leer la tabla que guarda los hashes de contraseñas.
+REVOKE ALL ON SCHEMA access_svc FROM face_svc_user, auth_svc_user;
+REVOKE ALL ON SCHEMA face_svc   FROM access_svc_user, auth_svc_user;
+REVOKE ALL ON SCHEMA auth_svc   FROM face_svc_user, access_svc_user;
 
 -- Nadie usa el schema public.
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
@@ -78,3 +93,4 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 -- Sin ello, un `psql -U face_svc_user` no encontraria sus propias tablas.
 ALTER ROLE face_svc_user   SET search_path = face_svc;
 ALTER ROLE access_svc_user SET search_path = access_svc;
+ALTER ROLE auth_svc_user   SET search_path = auth_svc;

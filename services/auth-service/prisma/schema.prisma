@@ -1,0 +1,61 @@
+// ═══════════════════════════════════════════════════════════════════
+//  Auth Service — modelo de datos
+//
+//  Dueño de las cuentas de administración del sistema.
+//
+//  Vive en su propio schema y con su propio rol de PostgreSQL: ni el
+//  Face Service ni el Access Service pueden leer esta tabla, que es
+//  justo lo que se quiere de la tabla que guarda hashes de contraseñas.
+//
+//  Nótese la separación de dominios: `auth_svc.admin_users` son las
+//  personas que ADMINISTRAN el sistema; `face_svc.persons` son las
+//  personas que el sistema RECONOCE. No tienen nada que ver entre sí y
+//  no deben compartir tabla ni servicio.
+// ═══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["auth_svc"]
+}
+
+enum AdminRole {
+  /// Puede administrar personas y consultar la auditoría.
+  ADMIN
+  /// Además puede gestionar otras cuentas de administración.
+  OWNER
+
+  @@schema("auth_svc")
+}
+
+model AdminUser {
+  id    String @id @default(uuid()) @db.Uuid
+  email String @unique @db.VarChar(160)
+
+  /// Hash argon2id. NUNCA la contraseña en claro.
+  ///
+  /// Se usa argon2id y no bcrypt porque resiste mucho mejor los ataques
+  /// con hardware especializado (GPU/ASIC): su coste de memoria no se
+  /// paraleliza barato. Es la recomendación actual de OWASP.
+  passwordHash String @map("password_hash") @db.VarChar(255)
+
+  displayName String    @map("display_name") @db.VarChar(120)
+  role        AdminRole @default(ADMIN)
+  isActive    Boolean   @default(true) @map("is_active")
+
+  /// Contador de intentos fallidos consecutivos y bloqueo temporal.
+  /// Frena la fuerza bruta contra una cuenta concreta, que el límite
+  /// por IP no cubre si el atacante rota direcciones.
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
+
+  lastLoginAt DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("admin_users")
+  @@schema("auth_svc")
+}

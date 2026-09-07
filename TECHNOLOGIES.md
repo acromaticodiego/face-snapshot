@@ -38,22 +38,23 @@ nadie.
 
 | Technology | Version | Purpose | Service |
 |---|---|---|---|
-| Node.js | 24.19.0 | Runtime | gateway, face, access |
+| Node.js | 24.19.0 | Runtime | gateway, face, access, auth |
 | npm | 11.17.0 | Gestor de paquetes | gateway, face, access |
-| NestJS (core/common) | 11.2.3 | Framework | gateway, face, access |
+| NestJS (core/common) | 11.2.3 | Framework | gateway, face, access, auth |
 | @nestjs/platform-express | 11.2.3 | Servidor HTTP | gateway, face, access |
 | @nestjs/config | 4.0.4 | Variables de entorno | gateway, face, access |
 | @nestjs/swagger | 11.4.7 | OpenAPI y documentación | gateway, face, access |
 | @nestjs/throttler | 6.5.0 | Rate limiting | gateway, face, access |
-| @nestjs/jwt | 11.0.2 | Tokens de sesión | gateway, access |
+| @nestjs/jwt | 11.0.2 | Tokens de sesión y de administración | gateway, access, auth |
 | TypeScript | 5.9.3 | Lenguaje | gateway, face, access |
-| Prisma CLI | 7.10.0 | Migraciones | face, access |
-| @prisma/client | 7.10.0 | ORM | face, access |
+| Prisma CLI | 7.10.0 | Migraciones | face, access, auth |
+| @prisma/client | 7.10.0 | ORM | face, access, auth |
 | @prisma/adapter-pg | 7.10.0 | Adaptador de driver (obligatorio en Prisma 7) | face, access |
 | pg | 8.23.0 | Driver PostgreSQL | face, access |
 | Zod | 4.5.4 | Validación y contratos compartidos | todos |
 | Axios | 1.20.0 | Cliente HTTP entre servicios | gateway, face, access |
-| Helmet | 8.3.0 | Cabeceras de seguridad | gateway, face, access |
+| Helmet | 8.3.0 | Cabeceras de seguridad | gateway, face, access, auth |
+| @node-rs/argon2 | 2.2.0 | Hash de contraseñas (argon2id) | auth |
 | form-data | 4.0.6 | Reenvío multipart entre servicios | gateway, face, access |
 
 ---
@@ -203,3 +204,21 @@ scikit-image 2.2, donde el método desaparecerá.
 | `@nestjs/config` | 12.0.0 | 4.0.4 | requiere Nest 11+ como par de la 12 |
 | `prisma` | 8.0.0-rc.13 | 7.10.0 | `latest` es una release candidate |
 | `typescript` | 7.0.2 | 5.9.3 | NestJS no declara soporte para TS 7 |
+
+---
+
+## Nota sobre argon2
+
+Se usa `@node-rs/argon2` (implementación en Rust) y no el paquete
+`argon2` clásico porque distribuye **binarios precompilados para musl**,
+la librería de C de Alpine. El paquete clásico exige compilar con
+node-gyp, lo que obligaría a instalar `build-base` y `python3` en la
+imagen de producción solo para hashear contraseñas.
+
+Parámetros usados, según la recomendación de OWASP para argon2id:
+
+| Parámetro | Valor |
+|---|---|
+| memoryCost | 19 456 KiB (19 MiB) |
+| timeCost | 2 iteraciones |
+| parallelism | 1 |

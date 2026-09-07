@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
+import { AdminAuthController } from './admin/admin-auth.controller';
 import { AdminAuthGuard } from './admin/admin-auth.guard';
 import { AdminLogsController } from './admin/logs.controller';
 import { AdminPersonsController } from './admin/persons.controller';
@@ -11,6 +12,7 @@ import { AuthController } from './auth/auth.controller';
 import { HealthController } from './health/health.controller';
 import {
   AccessServiceClient,
+  AuthServiceClient,
   FaceServiceClient,
 } from './proxy/service-clients';
 
@@ -32,6 +34,7 @@ import {
   ],
   controllers: [
     AuthController,
+    AdminAuthController,
     AdminPersonsController,
     AdminLogsController,
     HealthController,
@@ -39,6 +42,7 @@ import {
   providers: [
     FaceServiceClient,
     AccessServiceClient,
+    AuthServiceClient,
     AdminAuthGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],

@@ -26,63 +26,69 @@ frontend solo dibuja lo que el backend le dice.
 ## Arquitectura
 
 ```
-                          ┌──────────────────────────┐
-                          │   FRONTEND (React 19)    │
-                          │  captura ~5 fps → JPEG   │
-                          └────────────┬─────────────┘
-                                       │ REST (multipart)
-                          ┌────────────▼─────────────┐
-                          │   API GATEWAY (NestJS)   │
-                          │  el único puerto abierto │
-                          └──┬──────────┬────────────┘
-              ┌──────────────┘          └──────────────┐
-              ▼                                        ▼
-  ┌───────────────────────┐              ┌────────────────────────┐
-  │    FACE SERVICE       │◄─────────────│    ACCESS SERVICE      │
-  │    NestJS + Prisma    │  ¿quién es?  │    NestJS + Prisma     │
-  │                       │              │                        │
-  │ · personas (CRUD)     │              │ · política de acceso   │
-  │ · enrolar rostro      │              │ · votación multi-frame │
-  │ · búsqueda pgvector   │              │ · auditoría            │
-  └──────────┬────────────┘              │ · emite JWT de sesión  │
-             │                           └───────────┬────────────┘
-             │ imagen                                │
-             ▼                                       │
-  ┌───────────────────────┐                          │
-  │    VISION SERVICE     │                          │
-  │    Python + FastAPI   │                          │
-  │      ⚠ SIN ESTADO     │                          │
-  │                       │                          │
-  │ · rostros.pt → cajas  │                          │
-  │ · landmarks → alinear │                          │
-  │ · ArcFace → vector    │                          │
-  └───────────────────────┘                          │
-             │                                       │
-             │           ┌───────────────────────────┘
-             │           │
-             ▼           ▼
-        ┌─────────────────────────┐
-        │  PostgreSQL + pgvector  │
-        │  face_svc · access_svc  │
-        └─────────────────────────┘
+                        ┌──────────────────────────┐
+                        │   FRONTEND (React 19)    │
+                        │  captura ~5 fps → JPEG   │
+                        └────────────┬─────────────┘
+                                     │ REST (multipart / JSON)
+                        ┌────────────▼─────────────┐
+                        │   API GATEWAY (NestJS)   │
+                        │  el único puerto abierto │
+                        │  guard de administración │
+                        └──┬────────┬────────┬─────┘
+           ┌───────────────┘        │        └───────────────┐
+           ▼                        ▼                        ▼
+ ┌───────────────────┐   ┌────────────────────┐   ┌────────────────────┐
+ │   AUTH SERVICE    │   │    FACE SERVICE    │   │   ACCESS SERVICE   │
+ │  NestJS + Prisma  │   │  NestJS + Prisma   │◄──│  NestJS + Prisma   │
+ │                   │   │                    │   │                    │
+ │ · login admin     │   │ · personas (CRUD)  │   │ · política acceso  │
+ │ · argon2id        │   │ · enrolar rostro   │   │ · votación frames  │
+ │ · emite JWT admin │   │ · búsqueda vector  │   │ · auditoría        │
+ └─────────┬─────────┘   └─────────┬──────────┘   └─────────┬──────────┘
+           │                       │ imagen                 │
+           │                       ▼                        │
+           │             ┌────────────────────┐             │
+           │             │   VISION SERVICE   │             │
+           │             │  Python + FastAPI  │             │
+           │             │    ⚠ SIN ESTADO    │             │
+           │             │                    │             │
+           │             │ · rostros.pt       │             │
+           │             │ · landmarks        │             │
+           │             │ · ArcFace          │             │
+           │             └────────────────────┘             │
+           │                                                │
+           ▼                                                ▼
+      ┌──────────────────────────────────────────────────────────┐
+      │              PostgreSQL 17 + pgvector                    │
+      │     auth_svc   ·   face_svc   ·   access_svc             │
+      │        (un schema y un rol por servicio)                 │
+      └──────────────────────────────────────────────────────────┘
 ```
 
 ### Responsabilidad de cada servicio
 
 | Servicio | Responsabilidad | Base de datos |
 |---|---|---|
-| **api-gateway** | Punto de entrada único. Enruta, valida, aplica CORS y rate limiting, normaliza errores. **Cero lógica de reconocimiento.** | — |
+| **api-gateway** | Punto de entrada único. Enruta, valida, aplica CORS y rate limiting, verifica el token de administración, normaliza errores. **Cero lógica de reconocimiento.** | — |
+| **auth-service** | Cuentas de administración. Verifica contraseñas con argon2id y emite el token que protege `/admin/*`. | schema `auth_svc` |
 | **face-service** | Dueño de las identidades y de los vectores faciales. Enrola, busca y elimina. | schema `face_svc` |
 | **access-service** | Decide si se concede el acceso. Votación multi-frame, auditoría, emisión de sesión. | schema `access_svc` |
 | **vision-service** | Convierte píxeles en vectores. No conoce identidades ni toca la base de datos. | ninguna |
 
-### Por qué no hay "User Service"
+### Por qué las identidades están separadas así
 
 Una persona y su rostro son la misma entidad y siempre se consultan
-juntas. Separarlas obligaría a un join distribuido en cada
-reconocimiento, que es el camino crítico. Cuando se añadan usuarios
-*administradores* (login, roles), eso sí será un servicio aparte: es
-otro dominio.
+juntas: separarlas obligaría a un join distribuido en cada
+reconocimiento, que es el camino crítico. Por eso viven en el mismo
+servicio.
+
+En cambio, las personas que **administran** el sistema y las que el
+sistema **reconoce** son dominios distintos que solo comparten la
+palabra "persona". Las cuentas de administración viven en el Auth
+Service, con su propio schema y su propio rol de PostgreSQL: ningún otro
+servicio puede leer los hashes de contraseñas, aunque su código lo
+intentara.
 
 ---
 
@@ -181,6 +187,9 @@ backend_detector/
 │   │       ├── faces/        enrolamiento y búsqueda vectorial
 │   │       └── vision/       cliente del Vision Service
 │   │
+│   ├── auth-service/         NestJS + Prisma · cuentas de administración
+│   │   └── src/admin/        login argon2id, bloqueo, primera cuenta
+│   │
 │   ├── access-service/       NestJS + Prisma · decisión y auditoría
 │   │   └── src/
 │   │       ├── verification/ política de acceso y votación
@@ -258,7 +267,10 @@ Rellena en `.env`: `POSTGRES_PASSWORD`, `FACE_SVC_DB_PASSWORD`,
 | `FACE_DETECTOR_BACKEND` | `yolo` | `yolo` (rostros.pt) o `scrfd` (InsightFace) |
 | `JWT_EXPIRES_IN` | `15m` | Duración de la sesión |
 | `CORS_ORIGINS` | `http://localhost:5173` | Orígenes permitidos |
-| `ADMIN_AUTH_ENABLED` | `false` | Activa el guard de administrador |
+| `ADMIN_AUTH_ENABLED` | `true` | Protección de `/admin/*`. Solo desactivar en depuración local |
+| `ADMIN_TOKEN_EXPIRES_IN` | `8h` | Duración de la sesión de administración |
+| `ADMIN_BOOTSTRAP_EMAIL` | `admin@detector.local` | Correo de la primera cuenta |
+| `ADMIN_BOOTSTRAP_PASSWORD` | — | Contraseña inicial. Mínimo 12 caracteres |
 
 ---
 
@@ -283,6 +295,7 @@ Aplica las migraciones la primera vez:
 ```bash
 docker compose exec face-service npx prisma migrate deploy
 docker compose exec access-service npx prisma migrate deploy
+docker compose exec auth-service npx prisma migrate deploy
 ```
 
 ---
@@ -353,9 +366,29 @@ Abre http://localhost:5173.
 
 ---
 
+## Cómo entrar como administrador
+
+La primera cuenta se crea sola al arrancar el Auth Service, usando
+`ADMIN_BOOTSTRAP_EMAIL` y `ADMIN_BOOTSTRAP_PASSWORD` de tu `.env`. Solo
+ocurre si no existe ninguna cuenta todavía.
+
+1. Entra en **http://localhost:5173/admin/login**.
+2. Usa el correo y la contraseña de tu `.env`.
+3. La sesión dura 8 horas y muere al cerrar la pestaña.
+
+El servicio se niega a crear la cuenta inicial si la contraseña tiene
+menos de 12 caracteres o si el correo no es válido: sería una cuenta
+inutilizable o insegura. Revisa los logs de `auth-service` si no
+aparece.
+
+> Cuando tengas el sistema en marcha, cambia la contraseña y retira
+> `ADMIN_BOOTSTRAP_PASSWORD` del entorno.
+
+---
+
 ## Cómo registrar una persona
 
-1. Entra en **http://localhost:5173/admin/faces**.
+1. Inicia sesión y entra en **http://localhost:5173/admin/faces**.
 2. Escribe el nombre (y opcionalmente un identificador) y pulsa *Crear*.
 3. Se abre la captura automáticamente. Colócate de frente, con buena luz.
 4. Pulsa *Capturar*, revisa la imagen y pulsa *Registrar*.
@@ -425,8 +458,13 @@ Valores de `reason`: `GRANTED`, `BELOW_THRESHOLD`, `NO_FACE_DETECTED`,
 
 ### Administración
 
+**Todas estas rutas exigen `Authorization: Bearer <token>`**, salvo el
+propio inicio de sesión.
+
 | Método | Ruta | Descripción |
 |---|---|---|
+| `POST` | `/admin/auth/login` | Inicia sesión, devuelve el token |
+| `GET` | `/admin/auth/me` | Comprueba el token y devuelve el administrador |
 | `GET` | `/admin/persons` | Lista personas (`?search=`, `?skip=`, `?take=`) |
 | `POST` | `/admin/persons` | Crea una persona |
 | `GET` | `/admin/persons/:id` | Consulta una persona |
@@ -455,8 +493,9 @@ face_svc.face_embeddings
   det_score · created_at
   índice HNSW (vector_cosine_ops)
 
-face_svc.admin_users
-  id · email · password_hash (argon2id) · display_name · is_active
+auth_svc.admin_users
+  id · email · password_hash (argon2id) · display_name · role
+  is_active · failed_attempts · locked_until · last_login_at
 
 access_svc.access_logs
   id · person_id · person_name · authenticated · confidence · reason
@@ -480,6 +519,13 @@ la persona se renombre o se elimine.
 
 ### Lo que está implementado
 
+- **Las rutas `/admin/*` exigen autenticación.** Contraseñas con
+  argon2id (parámetros OWASP), doble freno a la fuerza bruta (10
+  intentos/minuto por IP y bloqueo de 15 minutos tras 5 fallos), y
+  mensaje de error idéntico exista o no la cuenta.
+- **Un token de acceso facial no sirve para administrar.** Los tokens
+  llevan tipo y el guard lo comprueba; sin eso, cualquiera con la cara
+  registrada podría borrar a los demás. Hay una prueba automática.
 - **Los embeddings nunca salen del backend.** Garantizado por el sistema
   de tipos: Prisma no expone la columna `vector`, así que devolverla por
   error es imposible.
@@ -524,13 +570,17 @@ Ampliaciones previstas: detección de vida pasiva, verificación de
 textura/reflejos, análisis de micromovimiento, cámara con profundidad o
 infrarrojos.
 
-#### 2. Administración sin autenticación
+#### 2. Sin revocación de tokens
 
-`ADMIN_AUTH_ENABLED=false` por defecto: `/admin/*` está abierto.
-Cualquiera con acceso a la red puede registrar o eliminar personas.
+Un token de administración robado sigue siendo válido hasta que caduca
+(8 horas por defecto). Desactivar a un administrador surte efecto en su
+siguiente inicio de sesión, no de inmediato.
 
-El guard está escrito y la tabla `admin_users` existe; falta el endpoint
-de login. **Debe activarse antes de exponer el sistema.**
+Añadirlo exige *refresh tokens* con estado en base de datos y una
+consulta por petición en el guard, que hoy es puramente stateless.
+
+El token se guarda además en `sessionStorage`, no en una cookie
+`httpOnly`, así que un XSS podría robarlo. Ver ADR 0006.
 
 #### 3. Estado de votación en memoria
 
@@ -587,3 +637,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0003 | Umbral de similitud y votación multi-frame |
 | 0004 | Un schema y un rol por servicio |
 | 0005 | REST síncrono antes que mensajería |
+| 0006 | Autenticación de administradores en un servicio propio |

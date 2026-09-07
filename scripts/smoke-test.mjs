@@ -32,6 +32,8 @@ const arg = (name) => {
 };
 
 const enrollImage = arg('enroll');
+const adminEmail = arg('email') ?? process.env.ADMIN_BOOTSTRAP_EMAIL ?? 'admin@detector.local';
+const adminPassword = arg('password') ?? process.env.ADMIN_BOOTSTRAP_PASSWORD;
 const verifyImage = arg('verify');
 const strangerImage = arg('stranger');
 
@@ -49,7 +51,13 @@ const bad = (msg, extra = '') => {
 const skip = (msg) => console.log(`  \x1b[90mSALTA ${msg}\x1b[0m`);
 const section = (t) => console.log(`\n\x1b[1m${t}\x1b[0m`);
 
-async function api(path, init) {
+// Token de administracion, se rellena tras el login.
+let adminToken = null;
+
+async function api(path, init = {}) {
+  if (adminToken && path.startsWith('/admin') && !path.includes('/auth/login')) {
+    init.headers = { ...init.headers, Authorization: `Bearer ${adminToken}` };
+  }
   const res = await fetch(`${BASE}${path}`, init);
   const text = await res.text();
   let body;
@@ -89,8 +97,57 @@ if (health.ok && health.body.status === 'ok') {
   console.log('  ' + JSON.stringify(health.body, null, 2).replace(/\n/g, '\n  '));
 }
 
-// ── 2. Crear persona ──────────────────────────────────────────────
-section('2. Registro de persona');
+// ── 2. Autenticacion de administrador ─────────────────────────────
+section('2. Autenticación de administrador');
+
+// Sin token, las rutas de administracion deben rechazar la peticion.
+const unauthorized = await api('/admin/persons');
+if (unauthorized.status === 401) {
+  ok('Rechaza el acceso a /admin sin token (401)');
+} else {
+  bad('¡/admin es accesible SIN token!', `devolvió ${unauthorized.status}`);
+}
+
+// Credenciales incorrectas.
+const wrongLogin = await api('/admin/auth/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email: adminEmail, password: 'contrasena-incorrecta' }),
+});
+if (wrongLogin.status === 401) {
+  ok('Rechaza credenciales incorrectas (401)');
+  if (/no existe|not found|usuario/i.test(JSON.stringify(wrongLogin.body))) {
+    bad('El mensaje de error revela si la cuenta existe');
+  } else {
+    ok('El mensaje de error no revela si la cuenta existe');
+  }
+} else {
+  bad('Debería rechazar una contraseña incorrecta', `devolvió ${wrongLogin.status}`);
+}
+
+if (!adminPassword) {
+  skip('pasa --password <contrasena> para probar el inicio de sesión');
+} else {
+  const login = await api('/admin/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+  });
+
+  if (login.ok && login.body.accessToken) {
+    adminToken = login.body.accessToken;
+    ok('Inicio de sesión correcto', login.body.admin?.email);
+
+    const authorized = await api('/admin/persons');
+    if (authorized.ok) ok('Con token, /admin responde correctamente');
+    else bad('Con token válido, /admin sigue rechazando', `${authorized.status}`);
+  } else {
+    bad('No se pudo iniciar sesión', JSON.stringify(login.body));
+  }
+}
+
+// ── 3. Crear persona ──────────────────────────────────────────────
+section('3. Registro de persona');
 
 const testName = `Prueba Humo ${Date.now()}`;
 const created = await api('/admin/persons', {
@@ -116,8 +173,8 @@ const invalid = await api('/admin/persons', {
 if (invalid.status === 400) ok('Rechaza nombres inválidos (400)');
 else bad('Debería rechazar un nombre de 1 carácter', `devolvió ${invalid.status}`);
 
-// ── 3. Enrolar rostro ─────────────────────────────────────────────
-section('3. Enrolamiento facial');
+// ── 4. Enrolar rostro ─────────────────────────────────────────────
+section('4. Enrolamiento facial');
 
 if (!personId) {
   skip('sin persona creada');
@@ -144,8 +201,8 @@ if (!personId) {
   }
 }
 
-// ── 4. Reconocer a la persona ─────────────────────────────────────
-section('4. Reconocimiento');
+// ── 5. Reconocer a la persona ─────────────────────────────────────
+section('5. Reconocimiento');
 
 if (!personId || !enrollImage) {
   skip('requiere una persona enrolada');
@@ -157,6 +214,7 @@ if (!personId || !enrollImage) {
   let granted = false;
   let lastConfidence = 0;
   let recognizedName = null;
+  let faceAccessToken = null;
 
   for (let i = 0; i < 6 && !granted; i++) {
     const res = await api('/auth/verify-frame', {
@@ -171,6 +229,7 @@ if (!personId || !enrollImage) {
 
     sessionKey = res.body.sessionKey;
     lastConfidence = res.body.confidence;
+    if (res.body.accessToken) faceAccessToken = res.body.accessToken;
     if (res.body.faces?.[0]?.personName) recognizedName = res.body.faces[0].personName;
     granted = res.body.authenticated;
 
@@ -184,13 +243,30 @@ if (!personId || !enrollImage) {
     ok(`Acceso CONCEDIDO tras votación`, `similitud ${lastConfidence.toFixed(3)}`);
     if (recognizedName === testName) ok('Identificó a la persona correcta');
     else bad(`Identificó a "${recognizedName}" en lugar de "${testName}"`);
+
+    // Separacion de privilegios: el token que recibe una persona al ser
+    // reconocida NO debe servir para administrar el sistema. Si sirviera,
+    // cualquiera con la cara registrada podria borrar a los demas.
+    if (faceAccessToken) {
+      const escalation = await fetch(`${BASE}/admin/persons`, {
+        headers: { Authorization: `Bearer ${faceAccessToken}` },
+      });
+      if (escalation.status === 401) {
+        ok('El token de acceso facial NO sirve para administrar');
+      } else {
+        bad(
+          '¡ESCALADA DE PRIVILEGIOS! El token de acceso facial permite administrar',
+          `devolvió ${escalation.status}`,
+        );
+      }
+    }
   } else {
     bad('No concedió el acceso', `mejor similitud ${lastConfidence.toFixed(3)}`);
   }
 }
 
-// ── 5. Rechazar a un desconocido ──────────────────────────────────
-section('5. Rechazo de desconocido');
+// ── 6. Rechazar a un desconocido ──────────────────────────────────
+section('6. Rechazo de desconocido');
 
 if (!strangerImage) {
   skip('pasa --stranger ruta/a/otra_persona.jpg');
@@ -209,8 +285,8 @@ if (!strangerImage) {
   }
 }
 
-// ── 6. Borrado ────────────────────────────────────────────────────
-section('6. Eliminación y derecho al olvido');
+// ── 7. Borrado ────────────────────────────────────────────────────
+section('7. Eliminación y derecho al olvido');
 
 if (!personId) {
   skip('sin persona creada');

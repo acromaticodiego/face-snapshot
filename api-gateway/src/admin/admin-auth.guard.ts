@@ -12,15 +12,13 @@ import { Request } from 'express';
 /**
  * Guard de administrador.
  *
- * ESTADO ACTUAL (MVP): desactivado por defecto. Las rutas de /admin son
- * accesibles sin autenticación mientras el sistema corre en red local.
+ * Protege todas las rutas /admin salvo el propio inicio de sesión.
+ * Verifica la firma del token, su caducidad y —crucialmente— su TIPO.
  *
- * Se activa poniendo ADMIN_AUTH_ENABLED=true. La estructura está
- * completa —verificación del token, tipo de token y claims— para que
- * activar el login sea añadir el endpoint de inicio de sesión, no
- * reescribir la capa de autorización.
- *
- * ANTES DE EXPONER EL SISTEMA A INTERNET ESTO DEBE ESTAR ACTIVADO.
+ * ACTIVADO POR DEFECTO. La variable ADMIN_AUTH_ENABLED permite
+ * desactivarlo para depuración en local, y en ese caso el servicio lo
+ * grita en los logs al arrancar. No debe desactivarse en ningún entorno
+ * que alguien más pueda alcanzar.
  */
 @Injectable()
 export class AdminAuthGuard implements CanActivate {
@@ -31,12 +29,13 @@ export class AdminAuthGuard implements CanActivate {
     private readonly jwt: JwtService,
     config: ConfigService,
   ) {
-    this.enabled = config.get<string>('ADMIN_AUTH_ENABLED', 'false') === 'true';
+    this.enabled = config.get<string>('ADMIN_AUTH_ENABLED', 'true') !== 'false';
 
     if (!this.enabled) {
-      this.logger.warn(
-        'Autenticación de administrador DESACTIVADA. ' +
-          'Las rutas /admin están abiertas. No exponer este servicio a Internet.',
+      this.logger.error(
+        '*** ADMIN_AUTH_ENABLED=false: las rutas /admin estan ABIERTAS. ' +
+          'Cualquiera puede registrar o eliminar personas. ' +
+          'Usar solo en depuracion local. ***',
       );
     }
   }

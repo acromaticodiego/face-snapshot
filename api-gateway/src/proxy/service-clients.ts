@@ -195,3 +195,31 @@ export class AccessServiceClient extends BaseServiceClient {
     return data;
   }
 }
+
+@Injectable()
+export class AuthServiceClient extends BaseServiceClient {
+  constructor(config: ConfigService) {
+    super(
+      AuthServiceClient.name,
+      config.get<string>('AUTH_SERVICE_URL', 'http://localhost:3003'),
+      8_000,
+    );
+  }
+
+  async login(body: { email?: string; password?: string }) {
+    try {
+      const { data } = await this.http.post('/api/v1/admin/auth/login', body);
+      return data;
+    } catch (e) {
+      // El mensaje del Auth Service ya es deliberadamente generico
+      // ("Credenciales invalidas"): se propaga tal cual para no filtrar
+      // si el correo existe.
+      this.fail(e, 'No se pudo iniciar sesion');
+    }
+  }
+
+  async health() {
+    const { data } = await this.http.get('/api/v1/health', { timeout: 3000 });
+    return data;
+  }
+}

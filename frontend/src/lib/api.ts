@@ -7,6 +7,8 @@
  * recibe.
  */
 
+import { adminSession } from './auth';
+
 const BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/v1';
 
@@ -90,7 +92,18 @@ async function parseError(response: Response): Promise<never> {
   throw new ApiError(message, response.status, code);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // Las rutas de administracion viajan siempre con el token; las de
+  // autenticacion facial son publicas por diseno (el usuario que se
+  // identifica ante la camara todavia no tiene ninguna sesion).
+  const needsAuth = path.startsWith('/admin') && !path.startsWith('/admin/auth/login');
+  if (needsAuth) {
+    const token = adminSession.getToken();
+    if (token) {
+      init.headers = { ...init.headers, Authorization: `Bearer ${token}` };
+    }
+  }
+
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}${path}`, init);
@@ -101,6 +114,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       0,
       'NETWORK_ERROR',
     );
+  }
+
+  // Token caducado o invalido: se limpia la sesion para que la interfaz
+  // devuelva al login en lugar de quedarse mostrando errores sueltos.
+  if (response.status === 401 && needsAuth) {
+    adminSession.clear();
   }
 
   if (!response.ok) await parseError(response);
@@ -156,6 +175,31 @@ export const api = {
       method: 'POST',
       body: form,
     });
+  },
+
+  async adminLogin(
+    email: string,
+    password: string,
+  ): Promise<{
+    accessToken: string;
+    expiresIn: string;
+    admin: { id: string; email: string; displayName: string; role: string };
+  }> {
+    return request('/admin/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  /** Comprueba si el token guardado sigue siendo valido. */
+  async adminMe(): Promise<{
+    id: string;
+    email: string;
+    displayName: string;
+    role: string;
+  }> {
+    return request('/admin/auth/me');
   },
 
   async health(): Promise<{ status: string }> {

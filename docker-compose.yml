@@ -31,6 +31,7 @@ services:
       POSTGRES_INITDB_ARGS: >-
         -c custom.face_svc_password=${FACE_SVC_DB_PASSWORD:?Define FACE_SVC_DB_PASSWORD}
         -c custom.access_svc_password=${ACCESS_SVC_DB_PASSWORD:?Define ACCESS_SVC_DB_PASSWORD}
+        -c custom.auth_svc_password=${AUTH_SVC_DB_PASSWORD:?Define AUTH_SVC_DB_PASSWORD}
     ports:
       # Expuesto solo en localhost: la base de datos no debe ser
       # alcanzable desde la red local.
@@ -123,6 +124,30 @@ services:
         condition: service_started
     networks: [detector-net]
 
+  # ── Autenticacion de administradores ────────────────────────────
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: ../../infrastructure/docker/Dockerfile.nest-prisma
+      args:
+        PORT: '3003'
+    container_name: detector-auth
+    restart: unless-stopped
+    environment:
+      AUTH_DATABASE_URL: postgresql://auth_svc_user:${AUTH_SVC_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-face_access}?schema=auth_svc
+      AUTH_SERVICE_PORT: '3003'
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
+      ADMIN_TOKEN_EXPIRES_IN: ${ADMIN_TOKEN_EXPIRES_IN:-8h}
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-admin@detector.local}
+      ADMIN_BOOTSTRAP_NAME: ${ADMIN_BOOTSTRAP_NAME:-Administrador}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?Define ADMIN_BOOTSTRAP_PASSWORD en .env}
+    expose:
+      - '3003'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [detector-net]
+
   # ── Punto de entrada del frontend ───────────────────────────────
   api-gateway:
     build:
@@ -138,7 +163,8 @@ services:
       ACCESS_SERVICE_URL: http://access-service:3002
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       JWT_SECRET: ${JWT_SECRET}
-      ADMIN_AUTH_ENABLED: ${ADMIN_AUTH_ENABLED:-false}
+      AUTH_SERVICE_URL: http://auth-service:3003
+      ADMIN_AUTH_ENABLED: ${ADMIN_AUTH_ENABLED:-true}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
     # El ÚNICO servicio publicado hacia fuera.
@@ -148,6 +174,8 @@ services:
       face-service:
         condition: service_started
       access-service:
+        condition: service_started
+      auth-service:
         condition: service_started
     networks: [detector-net]
 
