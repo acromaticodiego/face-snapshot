@@ -1,0 +1,178 @@
+# ══════════════════════════════════════════════════════════════════
+#  Sistema de control de acceso por reconocimiento facial
+#
+#  Arranque:
+#      cp .env.example .env    (y rellenar los valores)
+#      docker compose up --build
+#
+#  La primera construcción tarda: el Vision Service descarga PyTorch y
+#  los modelos de InsightFace (~700 MB en total).
+#
+#  DELIBERADAMENTE NO HAY Redis, RabbitMQ ni MinIO. El flujo principal
+#  funciona con REST síncrono; añadir esa infraestructura antes de
+#  necesitarla solo aportaría piezas que mantener.
+# ══════════════════════════════════════════════════════════════════
+
+name: backend-detector
+
+services:
+  # ── Base de datos ───────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: detector-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-facedetector}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-face_access}
+      # Las contraseñas de los roles por servicio llegan como opciones de
+      # sesión para que el script de inicialización pueda leerlas sin
+      # escribirlas en el propio SQL.
+      POSTGRES_INITDB_ARGS: >-
+        -c custom.face_svc_password=${FACE_SVC_DB_PASSWORD:?Define FACE_SVC_DB_PASSWORD}
+        -c custom.access_svc_password=${ACCESS_SVC_DB_PASSWORD:?Define ACCESS_SVC_DB_PASSWORD}
+    ports:
+      # Expuesto solo en localhost: la base de datos no debe ser
+      # alcanzable desde la red local.
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-facedetector} -d ${POSTGRES_DB:-face_access}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [detector-net]
+
+  # ── Visión: detección + embeddings ──────────────────────────────
+  vision-service:
+    build:
+      context: ./services/vision-service
+      dockerfile: Dockerfile
+    container_name: detector-vision
+    restart: unless-stopped
+    environment:
+      FACE_DETECTOR_BACKEND: ${FACE_DETECTOR_BACKEND:-yolo}
+      YOLO_FACE_MODEL_PATH: /app/modelos/rostros.pt
+      YOLO_CONFIDENCE_THRESHOLD: ${YOLO_CONFIDENCE_THRESHOLD:-0.45}
+      YOLO_IMAGE_SIZE: ${YOLO_IMAGE_SIZE:-640}
+      MIN_FACE_SIZE_PX: ${MIN_FACE_SIZE_PX:-80}
+      MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # El modelo se monta en SOLO LECTURA: el contenedor no puede
+      # modificarlo ni sobrescribirlo.
+      - ./modelos:/app/modelos:ro
+    # Sin `ports`: es un servicio interno. Solo el Face Service lo llama.
+    expose:
+      - '8000'
+    networks: [detector-net]
+
+  # ── Identidades y vectores faciales ─────────────────────────────
+  face-service:
+    build:
+      context: ./services/face-service
+      dockerfile: ../../infrastructure/docker/Dockerfile.nest
+      args:
+        HAS_PRISMA: 'true'
+        PORT: '3001'
+    container_name: detector-face
+    restart: unless-stopped
+    environment:
+      FACE_DATABASE_URL: postgresql://face_svc_user:${FACE_SVC_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-face_access}?schema=face_svc
+      FACE_SERVICE_PORT: '3001'
+      VISION_SERVICE_URL: http://vision-service:8000
+      EMBEDDING_DIM: '512'
+      RECOGNITION_THRESHOLD: ${RECOGNITION_THRESHOLD:-0.38}
+      MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
+    expose:
+      - '3001'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vision-service:
+        condition: service_healthy
+    networks: [detector-net]
+
+  # ── Decisión de acceso y auditoría ──────────────────────────────
+  access-service:
+    build:
+      context: ./services/access-service
+      dockerfile: ../../infrastructure/docker/Dockerfile.nest
+      args:
+        HAS_PRISMA: 'true'
+        PORT: '3002'
+    container_name: detector-access
+    restart: unless-stopped
+    environment:
+      ACCESS_DATABASE_URL: postgresql://access_svc_user:${ACCESS_SVC_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-face_access}?schema=access_svc
+      ACCESS_SERVICE_PORT: '3002'
+      FACE_SERVICE_URL: http://face-service:3001
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      RECOGNITION_VOTES_REQUIRED: ${RECOGNITION_VOTES_REQUIRED:-3}
+      RECOGNITION_WINDOW_SIZE: ${RECOGNITION_WINDOW_SIZE:-5}
+      MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
+    expose:
+      - '3002'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      face-service:
+        condition: service_started
+    networks: [detector-net]
+
+  # ── Punto de entrada del frontend ───────────────────────────────
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: ../infrastructure/docker/Dockerfile.nest
+      args:
+        PORT: '3000'
+    container_name: detector-gateway
+    restart: unless-stopped
+    environment:
+      GATEWAY_PORT: '3000'
+      FACE_SERVICE_URL: http://face-service:3001
+      ACCESS_SERVICE_URL: http://access-service:3002
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_AUTH_ENABLED: ${ADMIN_AUTH_ENABLED:-false}
+      MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+    # El ÚNICO servicio publicado hacia fuera.
+    ports:
+      - '${GATEWAY_PORT:-3000}:3000'
+    depends_on:
+      face-service:
+        condition: service_started
+      access-service:
+        condition: service_started
+    networks: [detector-net]
+
+  # ── Interfaz ────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000/api/v1}
+    container_name: detector-frontend
+    restart: unless-stopped
+    ports:
+      - '${FRONTEND_PORT:-5173}:80'
+    depends_on:
+      - api-gateway
+    networks: [detector-net]
+
+volumes:
+  postgres-data:
+    name: detector-postgres-data
+
+networks:
+  detector-net:
+    name: detector-net
+    driver: bridge

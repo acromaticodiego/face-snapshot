@@ -1,0 +1,75 @@
+// ═══════════════════════════════════════════════════════════════════
+//  Access Service — modelo de datos
+//
+//  Dueño de la auditoría de accesos y de las sesiones emitidas.
+//
+//  Nótese que NO hay clave foránea hacia `persons`: esa tabla
+//  pertenece a otro servicio y a otro schema. La referencia es por
+//  identificador, y el nombre se guarda desnormalizado a propósito
+//  (ver comentario en AccessLog).
+// ═══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["access_svc"]
+}
+
+enum AccessReason {
+  GRANTED
+  BELOW_THRESHOLD
+  NO_FACE_DETECTED
+  MULTIPLE_FACES
+  LOW_QUALITY
+  INSUFFICIENT_VOTES
+  PERSON_SUSPENDED
+
+  @@schema("access_svc")
+}
+
+model AccessLog {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Nulo cuando el rostro no correspondía a nadie registrado.
+  personId String? @map("person_id") @db.Uuid
+
+  /// Nombre en el momento del intento, guardado a propósito.
+  /// Un registro de auditoría debe ser inmutable: si mañana se
+  /// renombra o se elimina a la persona, este asiento histórico debe
+  /// seguir describiendo lo que ocurrió aquel día.
+  personName String? @map("person_name") @db.VarChar(120)
+
+  authenticated Boolean
+  confidence    Float        @db.Real
+  reason        AccessReason
+  cameraId      String       @default("default") @map("camera_id") @db.VarChar(60)
+  sessionId     String?      @map("session_id") @db.Uuid
+
+  /// NO se guarda la imagen ni el embedding del intento.
+  /// Sería el mayor riesgo de privacidad del sistema y no aporta
+  /// nada al control de acceso.
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([personId])
+  @@index([createdAt])
+  @@index([authenticated, createdAt])
+  @@map("access_logs")
+  @@schema("access_svc")
+}
+
+model AccessSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  personId   String    @map("person_id") @db.Uuid
+  personName String    @map("person_name") @db.VarChar(120)
+  issuedAt   DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@index([personId])
+  @@index([expiresAt])
+  @@map("access_sessions")
+  @@schema("access_svc")
+}

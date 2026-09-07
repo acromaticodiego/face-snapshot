@@ -1,0 +1,73 @@
+# ══════════════════════════════════════════════════════════════════
+#  Dockerfile común para los servicios NestJS.
+#
+#  Un único archivo parametrizado en lugar de tres casi idénticos: al
+#  ser el mismo stack, mantener tres copias garantiza que acaben
+#  divergiendo.
+#
+#  Uso desde docker-compose:
+#      build:
+#        context: ./services/face-service
+#        dockerfile: ../../infrastructure/docker/Dockerfile.nest
+#        args:
+#          HAS_PRISMA: "true"
+# ══════════════════════════════════════════════════════════════════
+
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+# Las dependencias se copian antes que el código: mientras package.json
+# no cambie, Docker reutiliza la capa de npm ci y la construcción es
+# mucho más rápida.
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+# Solo los servicios con base de datos generan el cliente de Prisma.
+ARG HAS_PRISMA=false
+RUN if [ "$HAS_PRISMA" = "true" ]; then npx prisma generate; fi
+
+RUN npm run build
+
+
+# ── Dependencias de producción ────────────────────────────────────
+FROM node:24-alpine AS deps
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+ARG HAS_PRISMA=false
+COPY prisma* ./
+RUN if [ "$HAS_PRISMA" = "true" ]; then npx prisma generate; fi
+
+
+# ── Imagen final ──────────────────────────────────────────────────
+FROM node:24-alpine
+
+RUN apk add --no-cache curl
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+COPY --from=deps  --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --chown=node:node package.json ./
+
+ARG HAS_PRISMA=false
+COPY --chown=node:node prisma* ./
+
+# La imagen de node trae un usuario `node` sin privilegios.
+USER node
+
+ARG PORT=3000
+ENV PORT=${PORT}
+EXPOSE ${PORT}
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://localhost:${PORT}/api/v1/health || exit 1
+
+CMD ["node", "dist/main"]

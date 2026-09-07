@@ -1,0 +1,65 @@
+# ── Secretos ──────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── Node ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+.npm/
+
+# ── Python ────────────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Modelos y pesos ───────────────────────────────────────────────
+# rostros.pt SÍ se versiona (es el modelo del proyecto, 22 MB).
+# Los pesos descargados de InsightFace NO: se bajan en build.
+modelos/insightface/
+modelos/*.onnx
+~/.insightface/
+
+# ── Datos biométricos y multimedia (NUNCA al repositorio) ──────────
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.mp4
+*.avi
+*.mov
+captures/
+embeddings/
+dumps/
+*.npy
+*.pkl
+!docs/**/*.png
+
+# ── Base de datos ─────────────────────────────────────────────────
+postgres-data/
+*.sql.gz
+*.dump
+
+# ── Editor / SO ───────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Temporales ────────────────────────────────────────────────────
+tmp/
+temp/
+*.log
+logs/

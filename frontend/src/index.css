@@ -1,0 +1,110 @@
+@import 'tailwindcss';
+
+/*
+ * Sistema de diseño.
+ *
+ * Tailwind 4 define el tema con variables CSS en @theme, sin archivo de
+ * configuración. La paleta se apoya en un azul frío para la interfaz y
+ * reserva verde y rojo EXCLUSIVAMENTE para el veredicto de acceso: en
+ * una pantalla de control de acceso, el color es información, no
+ * decoración, y no debe competir con nada más.
+ */
+
+@theme {
+  --color-surface-50: oklch(0.99 0.002 250);
+  --color-surface-100: oklch(0.97 0.004 250);
+  --color-surface-200: oklch(0.93 0.006 250);
+  --color-surface-300: oklch(0.87 0.008 250);
+  --color-surface-600: oklch(0.48 0.015 250);
+  --color-surface-700: oklch(0.36 0.018 250);
+  --color-surface-800: oklch(0.25 0.02 250);
+  --color-surface-900: oklch(0.17 0.022 255);
+  --color-surface-950: oklch(0.12 0.02 258);
+
+  --color-brand-400: oklch(0.72 0.14 250);
+  --color-brand-500: oklch(0.62 0.17 252);
+  --color-brand-600: oklch(0.54 0.18 254);
+  --color-brand-700: oklch(0.46 0.16 256);
+
+  --color-granted: oklch(0.72 0.18 150);
+  --color-granted-dim: oklch(0.55 0.14 150);
+  --color-denied: oklch(0.65 0.21 25);
+  --color-denied-dim: oklch(0.5 0.17 25);
+  --color-pending: oklch(0.78 0.15 85);
+
+  --radius-card: 1rem;
+
+  --animate-scan: scan 2.4s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-fade-up: fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  10%,
+  90% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* El tema oscuro se activa con la clase `dark` en <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-surface-100 text-surface-900 antialiased;
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  html.dark body {
+    @apply bg-surface-950 text-surface-100;
+  }
+
+  /* Respeta a quien haya pedido menos movimiento en su sistema. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

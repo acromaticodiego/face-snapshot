@@ -1,0 +1,98 @@
+// ═══════════════════════════════════════════════════════════════════
+//  Face Service — modelo de datos
+//
+//  Dueño único de las identidades y de sus vectores faciales.
+//  Ningún otro servicio escribe en este schema.
+// ═══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+  schemas    = ["face_svc"]
+}
+
+enum PersonStatus {
+  ACTIVE
+  SUSPENDED
+
+  @@schema("face_svc")
+}
+
+model Person {
+  id         String       @id @default(uuid()) @db.Uuid
+  fullName   String       @map("full_name") @db.VarChar(120)
+  /// Identificador externo opcional (cédula, legajo, código de empleado).
+  externalId String?      @unique @map("external_id") @db.VarChar(64)
+  status     PersonStatus @default(ACTIVE)
+
+  /// Borrado suave para la persona: conserva la trazabilidad.
+  /// Los embeddings, en cambio, se borran físicamente en cascada.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  embeddings FaceEmbedding[]
+
+  @@index([status, deletedAt])
+  @@map("persons")
+  @@schema("face_svc")
+}
+
+model FaceEmbedding {
+  id       String @id @default(uuid()) @db.Uuid
+  personId String @map("person_id") @db.Uuid
+
+  /// Vector ArcFace de 512 dimensiones, normalizado L2.
+  ///
+  /// Se declara como Unsupported porque Prisma no tiene tipo `vector`
+  /// nativo: gestiona la columna en las migraciones pero NO la expone
+  /// en el cliente tipado. La búsqueda por similitud se hace con
+  /// $queryRaw parametrizado.
+  ///
+  /// Efecto lateral deseado: al no existir en el cliente, es
+  /// imposible devolver un embedding por accidente en una respuesta
+  /// HTTP. La regla "no exponer embeddings" queda garantizada por el
+  /// sistema de tipos, no por disciplina.
+  embedding Unsupported("vector(512)")
+
+  /// Modelo y versión con los que se generó el vector.
+  /// Embeddings de modelos distintos NO son comparables entre sí:
+  /// sin este dato, un cambio de modelo rompería el reconocimiento
+  /// de forma silenciosa.
+  modelName    String @map("model_name") @db.VarChar(80)
+  modelVersion String @map("model_version") @db.VarChar(20)
+
+  /// Calidad de la captura de la que salió el vector.
+  detScore Float @map("det_score") @db.Real
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId])
+  @@index([modelName, modelVersion])
+  @@map("face_embeddings")
+  @@schema("face_svc")
+}
+
+/// Administradores del panel. Preparado para la autenticación futura.
+model AdminUser {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(160)
+  /// Hash argon2id. NUNCA texto plano.
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  displayName  String   @map("display_name") @db.VarChar(120)
+  isActive     Boolean  @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("admin_users")
+  @@schema("face_svc")
+}
