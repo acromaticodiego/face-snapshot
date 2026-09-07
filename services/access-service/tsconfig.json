@@ -18,10 +18,12 @@
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "rootDir": "./src"
   },
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "prisma.config.ts"
   ]
 }

@@ -1,4 +1,4 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -12,7 +12,6 @@ async function bootstrap(): Promise<void> {
 
   app.use(helmet({ crossOriginResourcePolicy: false }));
   app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
   app.setGlobalPrefix('api/v1');
 
   // Este es el ÚNICO servicio que el navegador puede alcanzar, así que es

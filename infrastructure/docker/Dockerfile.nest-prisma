@@ -1,29 +1,34 @@
 # ══════════════════════════════════════════════════════════════════
-#  Servicios NestJS SIN base de datos (api-gateway).
+#  Servicios NestJS CON base de datos (face-service, access-service).
 #
-#  Los servicios con Prisma usan Dockerfile.nest-prisma. Se separaron a
-#  propósito: intentar cubrir ambos casos con un COPY condicional
-#  obligaba a usar comodines, y `COPY prisma* ./` copia el CONTENIDO del
-#  directorio en lugar del directorio, dejando el schema en la ruta
-#  equivocada. Dos archivos cortos y explícitos son preferibles a uno
-#  con un truco frágil.
+#  Diferencias respecto a Dockerfile.nest:
+#    · genera el cliente de Prisma durante la construcción
+#    · conserva el CLI de Prisma y el directorio prisma/ en la imagen
+#      final, para poder ejecutar migraciones dentro del contenedor:
+#          docker compose exec face-service npx prisma migrate deploy
 # ══════════════════════════════════════════════════════════════════
 
 FROM node:24-alpine AS builder
 
 WORKDIR /app
 
-# Las dependencias se copian antes que el código: mientras package.json
-# no cambie, Docker reutiliza la capa de npm ci.
 COPY package*.json ./
-RUN npm ci
+
+# npm 11 bloquea por defecto los scripts de instalación. Prisma los
+# necesita para preparar su motor, así que se permiten explícitamente
+# durante la construcción de la imagen.
+RUN npm ci --ignore-scripts=false
 
 COPY . .
+
+RUN npx prisma generate
 RUN npm run build
 
-# Se eliminan las dependencias de desarrollo del mismo árbol que se
-# llevará la imagen final, en lugar de instalarlas dos veces.
-RUN npm prune --omit=dev
+# Se podan las dependencias de desarrollo y se REGENERA el cliente:
+# `npm prune` puede llevarse por delante el directorio generado
+# node_modules/.prisma, que no pertenece a ningún paquete declarado.
+RUN npm prune --omit=dev \
+    && npx prisma generate
 
 
 # ── Imagen final ──────────────────────────────────────────────────
@@ -39,7 +44,10 @@ COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/package.json ./
 
-# La imagen de node trae un usuario `node` sin privilegios.
+# Necesarios para ejecutar migraciones dentro del contenedor.
+COPY --from=builder --chown=node:node /app/prisma ./prisma
+COPY --from=builder --chown=node:node /app/prisma.config.ts ./
+
 USER node
 
 ARG PORT=3000

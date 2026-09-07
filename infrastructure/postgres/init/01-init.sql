@@ -13,13 +13,27 @@
 --  trivial porque ya no comparten tablas.
 -- ══════════════════════════════════════════════════════════════════
 
--- pgvector: tipo vector y búsqueda por similitud.
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- ── Schemas ───────────────────────────────────────────────────────
 CREATE SCHEMA IF NOT EXISTS face_svc;
 CREATE SCHEMA IF NOT EXISTS access_svc;
+
+-- ── pgvector ──────────────────────────────────────────────────────
+--
+-- La extension se instala DENTRO de face_svc, no en public.
+--
+-- Motivo: la cadena de conexion de Prisma lleva `?schema=face_svc`, y eso
+-- fija el search_path de CADA CONEXION a ese unico schema, anulando
+-- cualquier search_path configurado a nivel de rol. Con la extension en
+-- public, ni el tipo `vector` ni el operador de distancia coseno `<=>`
+-- se resolverian: fallarian las migraciones y las busquedas por
+-- similitud en ejecucion.
+--
+-- Instalarla en el schema que la usa tambien encaja con el diseno: cada
+-- servicio es dueno de todo lo que hay dentro de su schema.
+CREATE EXTENSION IF NOT EXISTS vector SCHEMA face_svc;
+
+-- No se instala uuid-ossp: gen_random_uuid() forma parte del nucleo de
+-- PostgreSQL desde la version 13.
 
 -- ── Roles por servicio ────────────────────────────────────────────
 -- Las contraseñas llegan por variables de entorno del contenedor.
@@ -57,5 +71,10 @@ REVOKE ALL ON SCHEMA face_svc   FROM access_svc_user;
 -- Nadie usa el schema public.
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
--- El tipo `vector` vive en public: hay que poder resolverlo.
-GRANT USAGE ON SCHEMA public TO face_svc_user, access_svc_user;
+-- search_path por defecto de cada rol.
+--
+-- Prisma lo sobrescribe por conexion con `?schema=`, asi que esto solo
+-- afecta a conexiones manuales (psql, copias de seguridad, scripts).
+-- Sin ello, un `psql -U face_svc_user` no encontraria sus propias tablas.
+ALTER ROLE face_svc_user   SET search_path = face_svc;
+ALTER ROLE access_svc_user SET search_path = access_svc;

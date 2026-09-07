@@ -12,3 +12,10 @@
 **/.idea
 **/*.log
 **/tmp
+
+# Estado de compilacion incremental de TypeScript.
+#
+# Si se copia al contexto de build, tsc lo cree y no reemite los .js:
+# la imagen acaba con solo archivos .d.ts y el contenedor arranca
+# buscando un dist/main.js que no existe.
+**/*.tsbuildinfo

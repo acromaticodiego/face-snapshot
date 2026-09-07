@@ -32,6 +32,18 @@ RUN pip install --upgrade pip \
          --index-url https://download.pytorch.org/whl/cpu \
     && pip install -r requirements.txt
 
+# Ultralytics declara `opencv-python`, la variante CON interfaz gráfica.
+# Se instala junto a la headless y es la que acaba resolviendo `import
+# cv2`, pero enlaza contra libxcb y el resto de X11, que no existen en
+# una imagen slim.
+#
+# Se desinstalan ambas y se reinstala solo la headless: es la correcta
+# para un servidor sin pantalla, y evita arrastrar X11 entero a la imagen
+# solo para satisfacer una dependencia que nunca dibuja una ventana.
+RUN pip uninstall -y opencv-python opencv-python-headless \
+    && pip install --no-cache-dir opencv-python-headless==5.0.0.93 \
+    && python -c "import cv2; print('cv2', cv2.__version__, 'headless OK')"
+
 
 # ── Imagen final ──────────────────────────────────────────────────
 FROM python:3.12-slim

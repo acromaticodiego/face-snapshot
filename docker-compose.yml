@@ -75,9 +75,8 @@ services:
   face-service:
     build:
       context: ./services/face-service
-      dockerfile: ../../infrastructure/docker/Dockerfile.nest
+      dockerfile: ../../infrastructure/docker/Dockerfile.nest-prisma
       args:
-        HAS_PRISMA: 'true'
         PORT: '3001'
     container_name: detector-face
     restart: unless-stopped
@@ -101,9 +100,8 @@ services:
   access-service:
     build:
       context: ./services/access-service
-      dockerfile: ../../infrastructure/docker/Dockerfile.nest
+      dockerfile: ../../infrastructure/docker/Dockerfile.nest-prisma
       args:
-        HAS_PRISMA: 'true'
         PORT: '3002'
     container_name: detector-access
     restart: unless-stopped
