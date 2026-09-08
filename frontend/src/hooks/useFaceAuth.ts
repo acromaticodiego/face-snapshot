@@ -51,6 +51,16 @@ export function useFaceAuth({
   const [message, setMessage] = useState('Iniciando cámara...');
   const [votes, setVotes] = useState({ current: 0, required: 0 });
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Persona reconocida, disponible en cuanto se concede el acceso.
+   *
+   * Se guarda aparte de `faces` porque las cajas se vacían en cuanto
+   * deja de haber detecciones, y el nombre debe seguir en pantalla
+   * durante la confirmación en verde, justo antes de cambiar de vista.
+   */
+  const [person, setPerson] = useState<{ id: string; name: string } | null>(
+    null,
+  );
 
   const sessionKeyRef = useRef<string | undefined>(undefined);
   const runningRef = useRef(false);
@@ -69,6 +79,7 @@ export function useFaceAuth({
     consecutiveErrorsRef.current = 0;
 
     if (result.authenticated && result.person) {
+      setPerson(result.person);
       setPhase('granted');
       setMessage(`Bienvenido, ${result.person.name.split(' ')[0]}`);
       onGrantedRef.current?.(result.person, result.accessToken);
@@ -159,11 +170,12 @@ export function useFaceAuth({
     sessionKeyRef.current = undefined;
     consecutiveErrorsRef.current = 0;
     setFaces([]);
+    setPerson(null);
     setVotes({ current: 0, required: 0 });
     setError(null);
     setPhase('searching');
     setMessage('Buscando rostro...');
   }, []);
 
-  return { phase, faces, message, votes, error, reset };
+  return { phase, faces, person, message, votes, error, reset };
 }

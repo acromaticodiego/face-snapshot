@@ -4,7 +4,7 @@ import {
   CheckCircle2,
   ScanFace,
   ShieldCheck,
-  Users,
+  UserPlus,
   XCircle,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -41,14 +41,15 @@ export function AuthPage() {
       // La sesión la emite el backend; el frontend solo la transporta.
       if (token) sessionStorage.setItem('accessToken', token);
 
-      // Pequeña pausa para que el usuario vea la confirmación en verde
-      // antes de cambiar de pantalla.
+      // Pausa para que dé tiempo a leer el nombre en la confirmación
+      // verde antes de cambiar de pantalla. Con menos, el nombre aparece
+      // y desaparece antes de poder leerlo.
       setTimeout(() => {
         navigate('/bienvenida', {
           replace: true,
           state: { name: person.name, id: person.id },
         });
-      }, 1200);
+      }, 2000);
     },
     [navigate],
   );
@@ -176,9 +177,19 @@ export function AuthPage() {
 
             {/* Velo de éxito */}
             {auth.phase === 'granted' && (
-              <div className="animate-fade-up absolute inset-0 flex flex-col items-center justify-center gap-3 bg-granted/20 backdrop-blur-sm">
-                <CheckCircle2 className="h-16 w-16 text-white drop-shadow-lg" />
-                <p className="text-lg font-semibold text-white drop-shadow">
+              <div className="animate-fade-up absolute inset-0 flex flex-col items-center justify-center gap-2 bg-granted/25 px-6 text-center backdrop-blur-sm">
+                <CheckCircle2 className="h-14 w-14 text-white drop-shadow-lg" />
+
+                {/* El nombre es lo más importante de esta pantalla: es la
+                    confirmación de que el sistema reconoció a la persona
+                    correcta, y quien está delante debe poder leerlo. */}
+                {auth.person && (
+                  <p className="text-3xl font-bold tracking-tight text-white drop-shadow-lg sm:text-4xl">
+                    {auth.person.name}
+                  </p>
+                )}
+
+                <p className="text-base font-medium text-white/90 drop-shadow">
                   Acceso concedido
                 </p>
               </div>
@@ -194,7 +205,10 @@ export function AuthPage() {
                 role="status"
                 aria-live="polite"
               >
-                {auth.error ?? auth.message}
+                {auth.error ??
+                  (auth.phase === 'granted' && auth.person
+                    ? `Identidad confirmada: ${auth.person.name}`
+                    : auth.message)}
               </span>
             </div>
 
@@ -232,9 +246,16 @@ export function AuthPage() {
               Reintentar
             </Button>
           )}
+          {/* Segunda via de entrada al sistema: quien va a dar de alta a
+              alguien nuevo pasa por aquí. Lleva a /admin/faces y no
+              directamente al login para que, si ya hay sesión abierta, no
+              vuelva a pedir credenciales. */}
           <Link to="/admin/faces">
-            <Button variant="ghost" size="sm" icon={<Users className="h-4 w-4" />}>
-              Administrar personas
+            <Button
+              variant="secondary"
+              icon={<UserPlus className="h-4 w-4" />}
+            >
+              Registrar nueva persona
             </Button>
           </Link>
         </div>

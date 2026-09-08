@@ -29,8 +29,6 @@ export function WelcomePage() {
     return <Navigate to="/" replace />;
   }
 
-  const firstName = state.name.split(' ')[0];
-
   const handleExit = () => {
     sessionStorage.removeItem('accessToken');
     navigate('/', { replace: true });
@@ -43,12 +41,16 @@ export function WelcomePage() {
           <CheckCircle2 className="h-9 w-9 text-granted" />
         </div>
 
-        <h1 className="text-2xl font-bold tracking-tight">
+        <p className="text-sm font-medium tracking-wide text-surface-600 uppercase">
           Bienvenido al sistema
-        </h1>
-        <p className="mt-2 text-lg text-surface-700 dark:text-surface-300">
-          Bienvenido, <span className="font-semibold">{firstName}</span>
         </p>
+
+        {/* El nombre completo, y no solo el primero: es la confirmación
+            de a quién identificó el sistema, así que debe poder
+            comprobarse de un vistazo. */}
+        <h1 className="mt-2 text-3xl font-bold tracking-tight text-balance">
+          {state.name}
+        </h1>
 
         <p className="mt-6 text-sm text-surface-600">
           Tu identidad fue verificada correctamente.
