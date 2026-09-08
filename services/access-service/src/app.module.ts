@@ -8,6 +8,9 @@ import { FaceClient } from './face/face.client';
 import { HealthController } from './health/health.controller';
 import { AccessLogsController } from './logs/access-logs.controller';
 import { AccessLogsService } from './logs/access-logs.service';
+import { PolicyController } from './policy/policy.controller';
+import { PolicyRepository } from './policy/policy.repository';
+import { PolicyService } from './policy/policy.service';
 import { PrismaService } from './prisma/prisma.service';
 import { VerificationController } from './verification/verification.controller';
 import { VerificationService } from './verification/verification.service';
@@ -42,6 +45,7 @@ import { VoteWindowService } from './verification/vote-window.service';
   ],
   controllers: [
     VerificationController,
+    PolicyController,
     AccessLogsController,
     HealthController,
   ],
@@ -49,6 +53,8 @@ import { VoteWindowService } from './verification/vote-window.service';
     PrismaService,
     VerificationService,
     VoteWindowService,
+    PolicyService,
+    PolicyRepository,
     AccessLogsService,
     FaceClient,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

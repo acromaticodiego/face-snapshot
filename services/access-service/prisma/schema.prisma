@@ -20,13 +20,216 @@ datasource db {
 
 enum AccessReason {
   GRANTED
+  // ── Fallos de identificacion ──────────────────────────────────
   BELOW_THRESHOLD
   NO_FACE_DETECTED
   MULTIPLE_FACES
   LOW_QUALITY
   INSUFFICIENT_VOTES
   PERSON_SUSPENDED
+  // ── Fallos de autorizacion ────────────────────────────────────
+  // Se distinguen de los anteriores a proposito: "no te reconozco"
+  // y "te reconozco pero no puedes pasar" son incidentes distintos
+  // para quien opera el sistema, y se investigan de forma distinta.
+  NO_ROLE_ASSIGNED
+  NO_PERMISSION_FOR_ZONE
+  OUTSIDE_SCHEDULE
+  ASSIGNMENT_EXPIRED
+  ACCESS_POINT_DISABLED
 
+  @@schema("access_svc")
+}
+
+/// Direccion de paso de un punto de acceso.
+enum PassageDirection {
+  IN
+  OUT
+  /// Un torniquete que sirve para ambos sentidos: la direccion la
+  /// determina el estado de presencia de la persona.
+  BOTH
+
+  @@schema("access_svc")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Topologia fisica: sede -> zona -> punto de acceso
+// ═══════════════════════════════════════════════════════════════════
+
+model Site {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @db.VarChar(120)
+
+  /// Zona horaria IANA de la sede, p.ej. "America/Bogota".
+  ///
+  /// NO es un detalle menor: los horarios se evaluan en la hora LOCAL
+  /// de la sede. Con sedes en husos distintos, evaluar en UTC o en la
+  /// hora del servidor abriria o cerraria puertas a la hora equivocada.
+  timezone String @default("America/Bogota") @db.VarChar(64)
+
+  address  String? @db.VarChar(200)
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  zones Zone[]
+
+  @@map("sites")
+  @@schema("access_svc")
+}
+
+model Zone {
+  id     String @id @default(uuid()) @db.Uuid
+  siteId String @map("site_id") @db.Uuid
+  name   String @db.VarChar(120)
+
+  description String? @db.VarChar(255)
+  isActive    Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  site         Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  accessPoints AccessPoint[]
+  permissions  RolePermission[]
+
+  @@unique([siteId, name])
+  @@index([siteId])
+  @@map("zones")
+  @@schema("access_svc")
+}
+
+model AccessPoint {
+  id     String @id @default(uuid()) @db.Uuid
+  zoneId String @map("zone_id") @db.Uuid
+  name   String @db.VarChar(120)
+
+  direction PassageDirection @default(BOTH)
+
+  /// Clave que identifica al terminal fisico.
+  ///
+  /// El terminal la envia en cada peticion; NO la elige quien entra.
+  /// Si el punto de acceso lo escogiera el usuario, bastaria con decir
+  /// que estas en una puerta a la que si tienes permiso.
+  terminalKey String @unique @map("terminal_key") @db.VarChar(64)
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  zone Zone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@index([zoneId])
+  @@map("access_points")
+  @@schema("access_svc")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Autorizacion: rol -> permiso (zona + horario)
+// ═══════════════════════════════════════════════════════════════════
+
+model Role {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique @db.VarChar(80)
+  description String? @db.VarChar(255)
+  isActive    Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  permissions RolePermission[]
+  assignments PersonRole[]
+
+  @@map("roles")
+  @@schema("access_svc")
+}
+
+model Schedule {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique @db.VarChar(80)
+  description String? @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rules       ScheduleRule[]
+  permissions RolePermission[]
+
+  @@map("schedules")
+  @@schema("access_svc")
+}
+
+/// Una franja horaria de un dia de la semana.
+///
+/// Un horario se compone de varias reglas: "L-V 07:00-19:00" son cinco
+/// filas. Modelarlo asi permite turnos irregulares (sabado solo por la
+/// manana) sin casos especiales en el codigo.
+model ScheduleRule {
+  id         String @id @default(uuid()) @db.Uuid
+  scheduleId String @map("schedule_id") @db.Uuid
+
+  /// 0 = domingo ... 6 = sabado. Mismo criterio que Date.getDay().
+  weekday Int @db.SmallInt
+
+  /// Minutos desde medianoche, en la hora LOCAL de la sede.
+  ///
+  /// Se guardan como enteros y no como `time` para poder expresar
+  /// franjas que cruzan la medianoche: un turno de noche 22:00-06:00
+  /// es startMinute=1320, endMinute=1800 (30:00). El motor normaliza.
+  startMinute Int @map("start_minute")
+  endMinute   Int @map("end_minute")
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId])
+  @@map("schedule_rules")
+  @@schema("access_svc")
+}
+
+/// Que puede hacer un rol: entrar a una zona dentro de un horario.
+model RolePermission {
+  id         String @id @default(uuid()) @db.Uuid
+  roleId     String @map("role_id") @db.Uuid
+  zoneId     String @map("zone_id") @db.Uuid
+  scheduleId String @map("schedule_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  role     Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  zone     Zone     @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+
+  @@unique([roleId, zoneId, scheduleId])
+  @@index([roleId])
+  @@index([zoneId])
+  @@map("role_permissions")
+  @@schema("access_svc")
+}
+
+/// Asignacion de un rol a una persona, con vigencia.
+///
+/// `personId` referencia a face_svc.persons SIN clave foranea: son
+/// servicios distintos y cada uno es dueño de su schema. La asignacion
+/// vive aqui, no en face_svc, porque quien decide la autorizacion es
+/// este servicio; face_svc solo debe saber de identidad y biometria.
+model PersonRole {
+  id       String @id @default(uuid()) @db.Uuid
+  personId String @map("person_id") @db.Uuid
+  roleId   String @map("role_id") @db.Uuid
+
+  /// Vigencia. Un contratista con acceso hasta fin de obra es el caso
+  /// normal, no la excepcion.
+  validFrom  DateTime  @default(now()) @map("valid_from") @db.Timestamptz(6)
+  validUntil DateTime? @map("valid_until") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, roleId])
+  @@index([personId])
+  @@map("person_roles")
   @@schema("access_svc")
 }
 
@@ -45,8 +248,20 @@ model AccessLog {
   authenticated Boolean
   confidence    Float        @db.Real
   reason        AccessReason
-  cameraId      String       @default("default") @map("camera_id") @db.VarChar(60)
-  sessionId     String?      @map("session_id") @db.Uuid
+
+  /// Contexto fisico del intento. Sin clave foranea a proposito: si
+  /// manana se elimina un punto de acceso, el asiento historico debe
+  /// seguir diciendo por donde se intento entrar.
+  siteId        String? @map("site_id") @db.Uuid
+  siteName      String? @map("site_name") @db.VarChar(120)
+  zoneId        String? @map("zone_id") @db.Uuid
+  zoneName      String? @map("zone_name") @db.VarChar(120)
+  accessPointId String? @map("access_point_id") @db.Uuid
+  accessPointName String? @map("access_point_name") @db.VarChar(120)
+  direction     PassageDirection?
+
+  cameraId  String  @default("default") @map("camera_id") @db.VarChar(60)
+  sessionId String? @map("session_id") @db.Uuid
 
   /// NO se guarda la imagen ni el embedding del intento.
   /// Sería el mayor riesgo de privacidad del sistema y no aporta
@@ -56,6 +271,7 @@ model AccessLog {
   @@index([personId])
   @@index([createdAt])
   @@index([authenticated, createdAt])
+  @@index([zoneId, createdAt])
   @@map("access_logs")
   @@schema("access_svc")
 }

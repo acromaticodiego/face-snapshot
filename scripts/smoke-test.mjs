@@ -64,6 +64,15 @@ const adminPassword =
   arg('password') ??
   process.env.ADMIN_BOOTSTRAP_PASSWORD ??
   env.ADMIN_BOOTSTRAP_PASSWORD;
+
+/**
+ * Puerta por la que se simula el paso.
+ *
+ * Debe existir como `terminal_key` de un access_point. Sin ella el
+ * sistema responde ACCESS_POINT_DISABLED, que es lo correcto: un
+ * terminal no identificado no puede abrir nada.
+ */
+const terminalKey = arg('terminal') ?? env.VITE_TERMINAL_KEY ?? 'main-entrance';
 const verifyImage = arg('verify');
 const strangerImage = arg('stranger');
 
@@ -234,8 +243,54 @@ if (!personId) {
   }
 }
 
-// ── 5. Reconocer a la persona ─────────────────────────────────────
-section('5. Reconocimiento');
+// ── 5. Autorizacion: reconocido NO implica autorizado ─────────────
+section('5. Autorización por rol y horario');
+
+let assignedRoleId = null;
+
+if (!personId || !enrollImage || !verifyImage) {
+  skip('requiere una persona enrolada y una imagen de verificación');
+} else {
+  // Sin rol asignado, el sistema debe reconocer a la persona y aun asi
+  // denegarle el paso. Es la diferencia entre identidad y autorizacion.
+  const noRole = await api('/auth/verify-frame', {
+    method: 'POST',
+    body: imageForm(verifyImage, { terminalKey }),
+  });
+
+  if (noRole.ok && noRole.body.reason === 'NO_ROLE_ASSIGNED') {
+    ok('Sin rol asignado, deniega aunque reconozca el rostro');
+    if (noRole.body.faces?.[0]?.recognized) {
+      ok('La caja sigue en verde: se le reconoció, no se le autorizó');
+    }
+  } else {
+    bad(
+      'Debería denegar por falta de rol',
+      `motivo ${noRole.body?.reason}`,
+    );
+  }
+
+  // Se asigna "Seguridad" y no "Empleado" a proposito: su horario es
+  // 24/7, asi que la prueba no depende de la hora a la que se ejecute.
+  const roles = await api('/admin/roles');
+  const securityRole = roles.body?.items?.find((r) => r.name === 'Seguridad');
+
+  if (!securityRole) {
+    bad('No se encontró el rol "Seguridad"', 'ejecuta el seed del access-service');
+  } else {
+    assignedRoleId = securityRole.id;
+    const assigned = await api(`/admin/persons/${personId}/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roleId: securityRole.id }),
+    });
+    if (assigned.ok) ok('Rol asignado', securityRole.name);
+    else bad('No se pudo asignar el rol', JSON.stringify(assigned.body));
+  }
+}
+
+// ── 6. Reconocer y conceder ───────────────────────────────────────
+section('6. Reconocimiento');
 
 if (!personId || !enrollImage) {
   skip('requiere una persona enrolada');
@@ -252,7 +307,10 @@ if (!personId || !enrollImage) {
   for (let i = 0; i < 6 && !granted; i++) {
     const res = await api('/auth/verify-frame', {
       method: 'POST',
-      body: imageForm(verifyImage, sessionKey ? { sessionKey } : {}),
+      body: imageForm(verifyImage, {
+        terminalKey,
+        ...(sessionKey ? { sessionKey } : {}),
+      }),
     });
 
     if (!res.ok) {
@@ -298,15 +356,15 @@ if (!personId || !enrollImage) {
   }
 }
 
-// ── 6. Rechazar a un desconocido ──────────────────────────────────
-section('6. Rechazo de desconocido');
+// ── 7. Rechazar a un desconocido ──────────────────────────────────
+section('7. Rechazo de desconocido');
 
 if (!strangerImage) {
   skip('pasa --stranger ruta/a/otra_persona.jpg');
 } else {
   const res = await api('/auth/verify-frame', {
     method: 'POST',
-    body: imageForm(strangerImage),
+    body: imageForm(strangerImage, { terminalKey }),
   });
 
   if (!res.ok) {
@@ -318,8 +376,8 @@ if (!strangerImage) {
   }
 }
 
-// ── 7. Borrado ────────────────────────────────────────────────────
-section('7. Eliminación y derecho al olvido');
+// ── 8. Borrado ────────────────────────────────────────────────────
+section('8. Eliminación y derecho al olvido');
 
 if (!personId) {
   skip('sin persona creada');

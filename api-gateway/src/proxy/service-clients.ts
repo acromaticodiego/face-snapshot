@@ -160,12 +160,17 @@ export class AccessServiceClient extends BaseServiceClient {
     mimetype: string;
     sessionKey?: string;
     cameraId?: string;
+    terminalKey?: string;
   }) {
     const form = this.buildImageForm(
       params.image,
       params.filename,
       params.mimetype,
-      { sessionKey: params.sessionKey, cameraId: params.cameraId },
+      {
+        sessionKey: params.sessionKey,
+        cameraId: params.cameraId,
+        terminalKey: params.terminalKey,
+      },
     );
     try {
       const { data } = await this.http.post(
@@ -176,6 +181,56 @@ export class AccessServiceClient extends BaseServiceClient {
       return data;
     } catch (e) {
       this.fail(e, 'No se pudo verificar el frame');
+    }
+  }
+
+  async listSites() {
+    try {
+      const { data } = await this.http.get('/api/v1/sites');
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudieron obtener las sedes');
+    }
+  }
+
+  async listRoles() {
+    try {
+      const { data } = await this.http.get('/api/v1/roles');
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudieron obtener los roles');
+    }
+  }
+
+  async listPersonRoles(personId: string) {
+    try {
+      const { data } = await this.http.get(`/api/v1/persons/${personId}/roles`);
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudieron obtener los roles de la persona');
+    }
+  }
+
+  async assignRole(personId: string, body: Record<string, unknown>) {
+    try {
+      const { data } = await this.http.post(
+        `/api/v1/persons/${personId}/roles`,
+        body,
+      );
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo asignar el rol');
+    }
+  }
+
+  async revokeRole(personId: string, roleId: string) {
+    try {
+      const { data } = await this.http.delete(
+        `/api/v1/persons/${personId}/roles/${roleId}`,
+      );
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo retirar el rol');
     }
   }
 

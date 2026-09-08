@@ -1,0 +1,141 @@
+name: CI
+
+# Se ejecuta en cada push y en cada pull request. La gracia de tenerlo
+# es que rompa ANTES de mergear, no después.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Un push nuevo sobre la misma rama cancela la ejecución anterior: no
+# tiene sentido gastar minutos validando un commit ya sustituido.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Servicios NestJS
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Sin fail-fast: si falla el gateway, quiero saber igualmente si
+      # los demás compilan. Cortar al primer fallo esconde información.
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - services/auth-service
+          - services/face-service
+          - services/access-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ${{ matrix.service }}/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: ${{ matrix.service }}
+        run: npm ci
+
+      # Los servicios con base de datos necesitan el cliente generado
+      # antes de compilar; sin él, TypeScript no conoce los modelos.
+      - name: Generar cliente de Prisma
+        working-directory: ${{ matrix.service }}
+        run: |
+          if [ -f prisma/schema.prisma ]; then
+            npx prisma generate
+          else
+            echo "Sin Prisma en este servicio"
+          fi
+
+      - name: Comprobar tipos
+        working-directory: ${{ matrix.service }}
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Compilar
+        working-directory: ${{ matrix.service }}
+        run: npm run build
+
+      - name: Tests
+        working-directory: ${{ matrix.service }}
+        run: |
+          if npm run | grep -qE '^\s+test$'; then
+            npm test
+          else
+            echo "Este servicio todavía no tiene tests"
+          fi
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: frontend
+        run: npm ci
+
+      - name: Comprobar tipos
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Compilar
+        working-directory: frontend
+        run: npm run build
+
+  vision:
+    name: Vision Service
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # No se instalan torch ni los modelos: son cientos de megas y esta
+      # comprobación solo busca errores de sintaxis e importación. La
+      # verificación real del pipeline se hace en local con
+      # scripts/inspect_model.py, que necesita el modelo.
+      - name: Comprobar sintaxis
+        working-directory: services/vision-service
+        run: python -m compileall -q app scripts
+
+  secrets:
+    name: Sin secretos en el repositorio
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Barrera mínima pero efectiva: lo que más duele es subir un .env
+      # por accidente, y eso queda en el historial para siempre.
+      - name: Comprobar que no hay ficheros .env versionados
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$'; then
+            echo "::error::Hay un fichero .env versionado"
+            exit 1
+          fi
+          echo "Ningún .env versionado"
+
+      - name: Comprobar que .env.example no lleva valores reales
+        run: |
+          if grep -qE '^(JWT_SECRET|.*PASSWORD|.*API_KEY)=.+' .env.example; then
+            echo "::error::.env.example contiene valores; debe llevar solo marcadores vacíos"
+            grep -nE '^(JWT_SECRET|.*PASSWORD|.*API_KEY)=.+' .env.example
+            exit 1
+          fi
+          echo ".env.example solo tiene marcadores"

@@ -31,7 +31,11 @@ modelos/insightface/
 modelos/*.onnx
 ~/.insightface/
 
-# ── Datos biométricos y multimedia (NUNCA al repositorio) ──────────
+# ── Datos biometricos y multimedia (NUNCA al repositorio) ─────────
+#
+# Se ignoran las imagenes en general para que no acabe subida una foto
+# de alguien por accidente. Las carpetas de assets se excluyen de la
+# regla mas abajo: ahi van iconos y logos, no rostros.
 *.jpg
 *.jpeg
 *.png
@@ -39,12 +43,18 @@ modelos/*.onnx
 *.mp4
 *.avi
 *.mov
-captures/
-embeddings/
-dumps/
 *.npy
 *.pkl
+
+# Directorios de datos sensibles, anclados a la raiz del proyecto.
+/captures/
+/embeddings/
+/dumps/
+
+# Excepciones: recursos de la interfaz y de la documentacion.
 !docs/**/*.png
+!frontend/public/**
+!frontend/src/assets/**
 
 # ── Base de datos ─────────────────────────────────────────────────
 postgres-data/
@@ -59,7 +69,15 @@ Thumbs.db
 desktop.ini
 
 # ── Temporales ────────────────────────────────────────────────────
-tmp/
-temp/
+#
+# ANCLADOS A LA RAIZ CON "/" A PROPOSITO.
+#
+# Sin la barra inicial, `logs/` coincide con CUALQUIER directorio
+# llamado "logs" a cualquier profundidad. Eso llego a ignorar el codigo
+# fuente de services/access-service/src/logs/, que compilaba en local
+# porque los archivos estaban en disco, pero faltaba en el repositorio
+# y rompia la integracion continua. El mismo riesgo tienen tmp y temp.
+/tmp/
+/temp/
+/logs/
 *.log
-logs/

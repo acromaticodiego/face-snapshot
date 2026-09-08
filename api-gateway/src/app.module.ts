@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
+import { AdminAccessPolicyController } from './admin/access-policy.controller';
 import { AdminAuthController } from './admin/admin-auth.controller';
 import { AdminAuthGuard } from './admin/admin-auth.guard';
 import { AdminLogsController } from './admin/logs.controller';
@@ -36,6 +37,7 @@ import {
     AuthController,
     AdminAuthController,
     AdminPersonsController,
+    AdminAccessPolicyController,
     AdminLogsController,
     HealthController,
   ],
