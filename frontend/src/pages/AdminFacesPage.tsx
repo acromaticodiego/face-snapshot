@@ -2,9 +2,11 @@ import {
   ArrowLeft,
   Camera,
   Check,
+  IdCard,
   LogOut,
   Search,
   Trash2,
+  User,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -12,18 +14,33 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  Input,
-  Skeleton,
-} from '@/components/ui';
 import { EnrollDialog } from '@/components/EnrollDialog';
+import {
+  GlassCard,
+  GlassField,
+  GlowBadge,
+  VaultBackground,
+  VaultButton,
+  VaultTitle,
+} from '@/components/vault';
 import { api, ApiError, type Person } from '@/lib/api';
 import { adminSession } from '@/lib/auth';
 import { formatDate } from '@/lib/utils';
+
+/** Degradados para el círculo de iniciales, repartidos por nombre. */
+const INITIAL_GRADIENTS = [
+  'from-vault-purple to-vault-blue',
+  'from-vault-orange to-vault-purple',
+  'from-vault-green to-vault-blue',
+  'from-vault-blue to-vault-purple',
+];
+
+function gradientFor(name: string): string {
+  // Suma de códigos: la misma persona conserva siempre su color entre
+  // recargas, en lugar de cambiar en cada render.
+  const seed = [...name].reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return INITIAL_GRADIENTS[seed % INITIAL_GRADIENTS.length];
+}
 
 export function AdminFacesPage() {
   const navigate = useNavigate();
@@ -108,35 +125,34 @@ export function AdminFacesPage() {
       );
       setPeople((prev) => prev.filter((p) => p.id !== person.id));
     } catch (err) {
-      toast.error(
-        err instanceof ApiError ? err.message : 'No se pudo eliminar',
-      );
+      toast.error(err instanceof ApiError ? err.message : 'No se pudo eliminar');
     } finally {
       setDeletingId(null);
     }
   };
 
   return (
-    <div className="min-h-dvh bg-surface-100 dark:bg-surface-950">
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div className="relative min-h-dvh bg-vault-bg">
+      <VaultBackground />
+
+      <div className="relative z-10 mx-auto max-w-4xl px-4 py-8">
+        {/* ── Navegación superior ──────────────────────────────── */}
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <Link
             to="/"
-            className="inline-flex items-center gap-1.5 text-sm text-surface-600 transition-colors hover:text-brand-600"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-white/55 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40"
           >
             <ArrowLeft className="h-4 w-4" />
             Volver a la autenticación
           </Link>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {admin && (
-              <span className="text-xs text-surface-600">
-                {admin.displayName}
-              </span>
+              <span className="text-sm text-white/55">{admin.displayName}</span>
             )}
-            <Button
+            <VaultButton
               size="sm"
-              variant="ghost"
+              tone="ghost"
               icon={<LogOut className="h-3.5 w-3.5" />}
               onClick={() => {
                 adminSession.clear();
@@ -144,34 +160,36 @@ export function AdminFacesPage() {
               }}
             >
               Salir
-            </Button>
+            </VaultButton>
           </div>
         </div>
 
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tight">
-            Personas registradas
-          </h1>
-          <p className="mt-1 text-sm text-surface-600">
+        {/* ── Encabezado ───────────────────────────────────────── */}
+        <header className="mb-8">
+          <VaultTitle>Personas registradas</VaultTitle>
+          <p className="mt-2 text-sm text-white/45">
             Solo se almacena la representación matemática del rostro, nunca la
             fotografía.
           </p>
         </header>
 
-        {/* Alta */}
-        <Card className="mb-6 p-5">
-          <h2 className="mb-4 flex items-center gap-2 font-semibold">
-            <UserPlus className="h-4 w-4 text-brand-600" />
+        {/* ── Alta de persona ──────────────────────────────────── */}
+        <GlassCard glow="purple" className="mb-6 p-6">
+          <h2 className="mb-5 flex items-center gap-2 text-sm font-semibold text-white">
+            <UserPlus className="h-4 w-4 text-vault-blue" />
             Registrar persona
           </h2>
+
           <form
             onSubmit={handleCreate}
-            className="flex flex-col gap-3 sm:flex-row sm:items-end"
+            className="flex flex-col gap-4 sm:flex-row sm:items-start"
           >
             <div className="flex-1">
-              <Input
-                name="fullName"
+              <GlassField
+                accent="purple"
+                icon={<User className="h-4 w-4" />}
                 label="Nombre completo"
+                name="fullName"
                 placeholder="Diego Ossa"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
@@ -180,86 +198,100 @@ export function AdminFacesPage() {
               />
             </div>
             <div className="flex-1">
-              <Input
-                name="externalId"
+              <GlassField
+                accent="orange"
+                icon={<IdCard className="h-4 w-4" />}
                 label="Identificador (opcional)"
+                name="externalId"
                 placeholder="Cédula o código"
                 value={newExternalId}
                 onChange={(e) => setNewExternalId(e.target.value)}
                 autoComplete="off"
               />
             </div>
-            <Button type="submit" loading={creating} className="sm:mb-0">
+            <VaultButton
+              type="submit"
+              loading={creating}
+              className="sm:mt-[1.65rem]"
+            >
               Crear
-            </Button>
+            </VaultButton>
           </form>
-        </Card>
+        </GlassCard>
 
-        {/* Buscador */}
-        <div className="relative mb-4">
-          <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-surface-600" />
-          <Input
+        {/* ── Buscador ─────────────────────────────────────────── */}
+        <GlassCard className="mb-6 flex items-center gap-3 px-4">
+          <Search className="h-4 w-4 shrink-0 text-white/35" />
+          <input
             name="search"
             placeholder="Buscar por nombre o identificador..."
-            className="pl-9"
+            className="w-full bg-transparent py-3 text-sm text-white placeholder:text-white/30 focus:outline-none"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-        </div>
+        </GlassCard>
 
-        {/* Listado */}
+        {/* ── Listado ──────────────────────────────────────────── */}
         {loading ? (
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (
-              <Card key={i} className="flex items-center gap-4 p-4">
-                <Skeleton className="h-11 w-11 rounded-full" />
+              <GlassCard key={i} className="flex items-center gap-4 p-4">
+                <div className="h-11 w-11 animate-pulse rounded-full bg-white/10" />
                 <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-3 w-24" />
+                  <div className="h-4 w-40 animate-pulse rounded bg-white/10" />
+                  <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
                 </div>
-                <Skeleton className="h-9 w-24" />
-              </Card>
+                <div className="h-9 w-24 animate-pulse rounded-xl bg-white/10" />
+              </GlassCard>
             ))}
           </div>
         ) : people.length === 0 ? (
-          <Card>
-            <EmptyState
-              icon={<Users className="h-7 w-7" />}
-              title={search ? 'Sin resultados' : 'Todavía no hay nadie'}
-              description={
-                search
-                  ? 'Prueba con otro nombre o identificador.'
-                  : 'Registra la primera persona con el formulario de arriba.'
-              }
-            />
-          </Card>
+          <GlassCard className="flex flex-col items-center gap-3 px-6 py-16 text-center">
+            <div className="rounded-full border border-white/10 bg-white/5 p-4 text-white/40">
+              <Users className="h-7 w-7" />
+            </div>
+            <h3 className="font-semibold text-white">
+              {search ? 'Sin resultados' : 'Todavía no hay nadie'}
+            </h3>
+            <p className="max-w-sm text-sm text-white/40">
+              {search
+                ? 'Prueba con otro nombre o identificador.'
+                : 'Registra la primera persona con el formulario de arriba.'}
+            </p>
+          </GlassCard>
         ) : (
           <div className="space-y-3">
             {people.map((person) => (
-              <Card
+              <GlassCard
                 key={person.id}
                 className="animate-fade-up flex flex-wrap items-center gap-4 p-4"
               >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-500/10 font-semibold text-brand-600">
+                <div
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${gradientFor(
+                    person.fullName,
+                  )} text-sm font-bold text-white shadow-lg`}
+                >
                   {person.fullName.slice(0, 1).toUpperCase()}
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{person.fullName}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-surface-600">
+                  <p className="truncate font-medium text-white">
+                    {person.fullName}
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/40">
                     {person.externalId && <span>{person.externalId}</span>}
                     <span>Alta {formatDate(person.createdAt)}</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Badge
-                    tone={person.status === 'ACTIVE' ? 'granted' : 'neutral'}
+                  <GlowBadge
+                    accent={person.status === 'ACTIVE' ? 'green' : 'orange'}
                   >
                     {person.status === 'ACTIVE' ? 'Activo' : 'Suspendido'}
-                  </Badge>
-                  <Badge
-                    tone={person.enrolledFacesCount > 0 ? 'granted' : 'pending'}
+                  </GlowBadge>
+                  <GlowBadge
+                    accent={person.enrolledFacesCount > 0 ? 'green' : 'orange'}
                   >
                     {person.enrolledFacesCount > 0 ? (
                       <>
@@ -270,29 +302,27 @@ export function AdminFacesPage() {
                     ) : (
                       'Sin rostro'
                     )}
-                  </Badge>
+                  </GlowBadge>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
+                  <VaultButton
                     size="sm"
-                    variant="secondary"
                     icon={<Camera className="h-3.5 w-3.5" />}
                     onClick={() => setEnrolling(person)}
                   >
                     Capturar
-                  </Button>
-                  <Button
+                  </VaultButton>
+                  <VaultButton
                     size="sm"
-                    variant="ghost"
+                    tone="danger"
                     aria-label={`Eliminar a ${person.fullName}`}
                     loading={deletingId === person.id}
                     onClick={() => void handleDelete(person)}
-                    className="text-denied hover:bg-denied/10"
                     icon={<Trash2 className="h-3.5 w-3.5" />}
                   />
                 </div>
-              </Card>
+              </GlassCard>
             ))}
           </div>
         )}

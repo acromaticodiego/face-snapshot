@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
-import { Skeleton } from '@/components/ui';
+import { VaultBackground } from '@/components/vault';
 import { api } from '@/lib/api';
 import { adminSession } from '@/lib/auth';
 
@@ -46,12 +46,15 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
   }, []);
 
   if (state === 'checking') {
+    // Mismo fondo que el panel: sin esto se vería un destello claro
+    // entre la comprobación del token y la pantalla real.
     return (
-      <div className="min-h-dvh bg-surface-100 p-8 dark:bg-surface-950">
-        <div className="mx-auto max-w-4xl space-y-4">
-          <Skeleton className="h-8 w-56" />
-          <Skeleton className="h-32 w-full" />
-          <Skeleton className="h-20 w-full" />
+      <div className="relative min-h-dvh bg-vault-bg p-8">
+        <VaultBackground />
+        <div className="relative z-10 mx-auto max-w-4xl space-y-4">
+          <div className="h-8 w-56 animate-pulse rounded-lg bg-white/10" />
+          <div className="h-32 w-full animate-pulse rounded-2xl bg-white/[0.06]" />
+          <div className="h-20 w-full animate-pulse rounded-2xl bg-white/[0.06]" />
         </div>
       </div>
     );
