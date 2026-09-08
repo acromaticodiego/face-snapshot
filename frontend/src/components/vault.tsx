@@ -183,7 +183,7 @@ export function VaultButton({
   loading?: boolean;
   icon?: ReactNode;
   size?: 'sm' | 'md';
-  tone?: 'blue' | 'ghost' | 'danger';
+  tone?: 'blue' | 'ghost' | 'danger' | 'glass';
 } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const TONES = {
     blue: cn(
@@ -191,6 +191,11 @@ export function VaultButton({
       'hover:shadow-[0_0_0_1px_var(--color-vault-orange),0_10px_30px_-8px_var(--color-vault-orange)]',
     ),
     ghost: 'text-white/60 hover:bg-white/10 hover:text-white',
+    glass: cn(
+      'border border-white/12 bg-white/[0.06] text-white backdrop-blur-xl',
+      'shadow-[inset_0_1px_0_0_rgb(255_255_255/0.08)]',
+      'hover:border-vault-green/60 hover:shadow-[0_0_0_1px_var(--color-vault-green),0_0_28px_-8px_var(--color-vault-green)]',
+    ),
     danger:
       'text-denied hover:bg-denied/15 hover:shadow-[0_0_0_1px_var(--color-denied)]',
   };
@@ -243,6 +248,39 @@ export function GlowBadge({
         STYLES[accent],
       )}
     >
+      {children}
+    </span>
+  );
+}
+
+/** Píldora de encabezado con borde tenue y halo de color. */
+export function VaultPill({
+  icon,
+  children,
+  accent = 'purple',
+}: {
+  icon?: ReactNode;
+  children: ReactNode;
+  accent?: Accent;
+}) {
+  const GLOW: Record<Accent, string> = {
+    purple:
+      'border-vault-purple/40 text-vault-purple shadow-[0_0_20px_-8px_var(--color-vault-purple)]',
+    green:
+      'border-vault-green/40 text-vault-green shadow-[0_0_20px_-8px_var(--color-vault-green)]',
+    orange:
+      'border-vault-orange/40 text-vault-orange shadow-[0_0_20px_-8px_var(--color-vault-orange)]',
+  };
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border bg-white/[0.06] px-3 py-1',
+        'text-xs font-medium backdrop-blur-xl',
+        GLOW[accent],
+      )}
+    >
+      {icon}
       {children}
     </span>
   );

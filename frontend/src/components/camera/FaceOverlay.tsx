@@ -95,8 +95,12 @@ export function FaceOverlay({
             (sourceWidth - face.bbox.x - face.bbox.width) * scale.x
           : face.bbox.x * scale.x + scale.offsetX;
 
+        // El significado del color NO cambia con el rediseño: verde es
+        // persona registrada y rojo es desconocida. Es la información
+        // más importante de la pantalla y no debe depender de la moda
+        // visual del momento.
         const color = face.recognized
-          ? 'var(--color-granted)'
+          ? 'var(--color-vault-green)'
           : 'var(--color-denied)';
 
         return (
@@ -110,10 +114,13 @@ export function FaceOverlay({
               height: `${height}px`,
             }}
           >
-            {/* Marco */}
+            {/* Marco de neón: halo hacia fuera y hacia dentro */}
             <div
-              className="absolute inset-0 rounded-lg border-[3px]"
-              style={{ borderColor: color, boxShadow: `0 0 20px ${color}55` }}
+              className="absolute inset-0 rounded-xl border-2"
+              style={{
+                borderColor: color,
+                boxShadow: `0 0 24px -2px ${color}, inset 0 0 24px -8px ${color}`,
+              }}
             />
 
             {/* Esquinas, para un aspecto de visor técnico */}
@@ -132,10 +139,14 @@ export function FaceOverlay({
               />
             ))}
 
-            {/* Etiqueta */}
+            {/* Etiqueta flotante sobre la caja */}
             <div
-              className="absolute -top-9 left-0 flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold text-white shadow-lg"
-              style={{ backgroundColor: color }}
+              className="absolute -top-9 left-0 flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-md"
+              style={{
+                borderColor: color,
+                backgroundColor: `color-mix(in oklab, ${color} 30%, transparent)`,
+                boxShadow: `0 0 20px -6px ${color}`,
+              }}
             >
               <span>{face.recognized ? '✓' : '✕'}</span>
               <span>{face.personName ?? 'Desconocido'}</span>

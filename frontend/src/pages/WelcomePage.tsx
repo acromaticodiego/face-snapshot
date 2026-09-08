@@ -1,7 +1,12 @@
 import { CheckCircle2, LogOut } from 'lucide-react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
-import { Button, Card } from '@/components/ui';
+import {
+  GlassCard,
+  VaultBackground,
+  VaultButton,
+  VaultTitle,
+} from '@/components/vault';
 
 interface WelcomeState {
   name?: string;
@@ -35,36 +40,39 @@ export function WelcomePage() {
   };
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-gradient-to-b from-surface-100 to-surface-200 px-4 dark:from-surface-950 dark:to-surface-900">
-      <Card className="animate-fade-up w-full max-w-md p-8 text-center">
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-granted/15">
-          <CheckCircle2 className="h-9 w-9 text-granted" />
+    <div className="relative flex min-h-dvh items-center justify-center bg-vault-bg px-4">
+      <VaultBackground />
+
+      <GlassCard
+        glow="green"
+        className="animate-fade-up relative z-10 w-full max-w-md p-8 text-center"
+      >
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full border border-vault-green/40 bg-vault-green/10 shadow-[0_0_30px_-8px_var(--color-vault-green)]">
+          <CheckCircle2 className="h-9 w-9 text-vault-green" />
         </div>
 
-        <p className="text-sm font-medium tracking-wide text-surface-600 uppercase">
+        <p className="text-xs font-medium tracking-widest text-white/40 uppercase">
           Bienvenido al sistema
         </p>
 
         {/* El nombre completo, y no solo el primero: es la confirmación
             de a quién identificó el sistema, así que debe poder
             comprobarse de un vistazo. */}
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-balance">
-          {state.name}
-        </h1>
+        <VaultTitle className="mt-2 text-balance">{state.name}</VaultTitle>
 
-        <p className="mt-6 text-sm text-surface-600">
+        <p className="mt-4 text-sm text-white/45">
           Tu identidad fue verificada correctamente.
         </p>
 
-        <Button
-          variant="secondary"
+        <VaultButton
+          tone="glass"
           className="mt-8 w-full"
           onClick={handleExit}
           icon={<LogOut className="h-4 w-4" />}
         >
           Salir
-        </Button>
-      </Card>
+        </VaultButton>
+      </GlassCard>
     </div>
   );
 }
