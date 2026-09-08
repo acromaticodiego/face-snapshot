@@ -18,7 +18,8 @@
     "strictBindCallApply": true,
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "exclude": [
     "node_modules",
