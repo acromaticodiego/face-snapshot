@@ -20,8 +20,8 @@
  * Si no pasas imágenes, solo ejecuta las comprobaciones 1 y 2.
  */
 
-import { readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 const BASE = process.env.API_BASE_URL ?? 'http://localhost:3000/api/v1';
 
@@ -31,9 +31,39 @@ const arg = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 
+/**
+ * Lee credenciales del .env del proyecto.
+ *
+ * Antes el script llevaba el correo escrito a fuego, y en cuanto se
+ * cambio la cuenta de administracion empezo a fallar el login mientras
+ * el sistema funcionaba perfectamente. Leerlo de la misma fuente que
+ * usan los servicios evita ese falso negativo.
+ */
+function readEnvFile() {
+  const path = join(process.cwd(), '.env');
+  if (!existsSync(path)) return {};
+  const out = {};
+  // Se parte con \r?\n porque en Windows el .env suele tener CRLF y, si
+  // no, cada valor arrastraria un retorno de carro invisible al final.
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const match = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (match) out[match[1]] = match[2].trim();
+  }
+  return out;
+}
+
+const env = readEnvFile();
+
 const enrollImage = arg('enroll');
-const adminEmail = arg('email') ?? process.env.ADMIN_BOOTSTRAP_EMAIL ?? 'admin@detector.local';
-const adminPassword = arg('password') ?? process.env.ADMIN_BOOTSTRAP_PASSWORD;
+const adminEmail =
+  arg('email') ??
+  process.env.ADMIN_BOOTSTRAP_EMAIL ??
+  env.ADMIN_BOOTSTRAP_EMAIL ??
+  'admin@detector.local';
+const adminPassword =
+  arg('password') ??
+  process.env.ADMIN_BOOTSTRAP_PASSWORD ??
+  env.ADMIN_BOOTSTRAP_PASSWORD;
 const verifyImage = arg('verify');
 const strangerImage = arg('stranger');
 
@@ -126,7 +156,7 @@ if (wrongLogin.status === 401) {
 }
 
 if (!adminPassword) {
-  skip('pasa --password <contrasena> para probar el inicio de sesión');
+  skip('sin contraseña: pásala con --password o define ADMIN_BOOTSTRAP_PASSWORD en .env');
 } else {
   const login = await api('/admin/auth/login', {
     method: 'POST',
@@ -142,7 +172,10 @@ if (!adminPassword) {
     if (authorized.ok) ok('Con token, /admin responde correctamente');
     else bad('Con token válido, /admin sigue rechazando', `${authorized.status}`);
   } else {
-    bad('No se pudo iniciar sesión', JSON.stringify(login.body));
+    bad(
+      'No se pudo iniciar sesión',
+      `como ${adminEmail} — ${JSON.stringify(login.body)}`,
+    );
   }
 }
 

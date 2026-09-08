@@ -34,9 +34,39 @@
 
   --radius-card: 1rem;
 
+  /* ── Pantalla de acceso ────────────────────────────────────────
+     Fondo profundo y tres acentos que dan color a los orbes y a los
+     bordes de los campos. Solo se usan en /admin/login. */
+  --color-vault-bg: #0a0612;
+  --color-vault-purple: oklch(0.62 0.24 300);
+  --color-vault-green: oklch(0.72 0.19 155);
+  --color-vault-orange: oklch(0.74 0.18 55);
+  --color-vault-blue: oklch(0.62 0.21 258);
+
+  --animate-ring-spin: ring-spin 7s linear infinite;
+  --animate-orb-drift: orb-drift 18s ease-in-out infinite;
   --animate-scan: scan 2.4s ease-in-out infinite;
   --animate-pulse-ring: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   --animate-fade-up: fade-up 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Aro del encabezado: gira de forma continua y lenta. */
+@keyframes ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Deriva muy lenta de los orbes de fondo: evita que la composición se
+   vea estática sin llegar a distraer de un formulario. */
+@keyframes orb-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(2.5rem, -1.75rem, 0) scale(1.08);
+  }
 }
 
 @keyframes scan {

@@ -2,7 +2,7 @@ import { AlertCircle, Camera, CheckCircle2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui';
+import { GlassCard, VaultButton } from '@/components/vault';
 import { useCamera } from '@/hooks/useCamera';
 import { api, ApiError, type Person } from '@/lib/api';
 
@@ -101,7 +101,7 @@ export function EnrollDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-surface-950/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
       aria-labelledby="enroll-title"
@@ -109,24 +109,24 @@ export function EnrollDialog({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="animate-fade-up w-full max-w-lg overflow-hidden rounded-card bg-white shadow-2xl dark:bg-surface-900">
-        <div className="flex items-center justify-between border-b border-surface-200 px-5 py-4 dark:border-surface-800">
+      <GlassCard className="animate-fade-up w-full max-w-lg overflow-hidden">
+        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>
-            <h2 id="enroll-title" className="font-semibold">
+            <h2 id="enroll-title" className="font-semibold text-white">
               Capturar rostro
             </h2>
-            <p className="text-xs text-surface-600">{person.fullName}</p>
+            <p className="text-xs text-white/45">{person.fullName}</p>
           </div>
           <button
             onClick={onClose}
             aria-label="Cerrar"
-            className="rounded-lg p-1.5 text-surface-600 transition-colors hover:bg-surface-200 dark:hover:bg-surface-800"
+            className="rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="relative aspect-video bg-surface-950">
+        <div className="relative aspect-video bg-black">
           {preview ? (
             <img
               src={preview}
@@ -152,15 +152,15 @@ export function EnrollDialog({
 
           {!camera.isReady && !preview && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
-              <Camera className="h-9 w-9 animate-pulse text-surface-300" />
-              <p className="text-sm text-surface-300">
+              <Camera className="h-9 w-9 animate-pulse text-white/50" />
+              <p className="text-sm text-white/60">
                 {camera.error ?? 'Iniciando cámara...'}
               </p>
             </div>
           )}
 
           {step === 'done' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-granted/25 backdrop-blur-sm">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-vault-green/25 backdrop-blur-sm">
               <CheckCircle2 className="h-14 w-14 text-white" />
               <p className="font-semibold text-white">Rostro registrado</p>
             </div>
@@ -168,43 +168,43 @@ export function EnrollDialog({
         </div>
 
         {error && (
-          <div className="flex items-start gap-2 border-t border-denied/20 bg-denied/10 px-5 py-3 text-sm text-denied-dim dark:text-denied">
+          <div className="flex items-start gap-2 border-t border-denied/20 bg-denied/10 px-5 py-3 text-sm text-denied">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-3 border-t border-surface-200 px-5 py-4 dark:border-surface-800">
-          <p className="text-xs text-surface-600">
+        <div className="flex items-center justify-between gap-3 border-t border-white/10 px-5 py-4">
+          <p className="text-xs text-white/40">
             Mira de frente, con buena luz y sin gafas de sol.
           </p>
           <div className="flex gap-2">
             {preview ? (
               <>
-                <Button variant="secondary" size="sm" onClick={retake}>
+                <VaultButton size="sm" tone="ghost" onClick={retake}>
                   Repetir
-                </Button>
-                <Button
+                </VaultButton>
+                <VaultButton
                   size="sm"
                   loading={step === 'submitting'}
                   onClick={() => void handleSubmit()}
                 >
                   Registrar
-                </Button>
+                </VaultButton>
               </>
             ) : (
-              <Button
+              <VaultButton
                 size="sm"
                 disabled={!camera.isReady}
                 onClick={() => void handleCapture()}
                 icon={<Camera className="h-4 w-4" />}
               >
                 Capturar
-              </Button>
+              </VaultButton>
             )}
           </div>
         </div>
-      </div>
+      </GlassCard>
     </div>
   );
 }

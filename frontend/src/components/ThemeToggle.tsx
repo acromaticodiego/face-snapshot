@@ -28,7 +28,7 @@ export function ThemeToggle() {
     <button
       onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
       aria-label={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
-      className="fixed top-4 right-4 z-40 rounded-lg border border-surface-200 bg-white/80 p-2 text-surface-700 shadow-sm backdrop-blur transition-colors hover:bg-surface-100 dark:border-surface-800 dark:bg-surface-900/80 dark:text-surface-300 dark:hover:bg-surface-800"
+      className="fixed top-4 right-4 z-40 rounded-xl border border-white/12 bg-white/[0.06] p-2 text-white/60 shadow-[inset_0_1px_0_0_rgb(255_255_255/0.08)] backdrop-blur-xl transition-colors hover:border-white/25 hover:text-white"
     >
       {theme === 'dark' ? (
         <Sun className="h-4 w-4" />
