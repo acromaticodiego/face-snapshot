@@ -27,6 +27,14 @@ const MESSAGES: Record<AccessReason, string> = {
   LOW_QUALITY: 'Acércate y mejora la iluminación',
   INSUFFICIENT_VOTES: 'Verificando identidad...',
   PERSON_SUSPENDED: 'Acceso suspendido',
+  // Reconocido, pero sin permiso. El mensaje lo dice explícitamente:
+  // quien está delante debe saber que el sistema SÍ le identificó y que
+  // el problema es de permisos, no de que no le reconozca la cara.
+  NO_ROLE_ASSIGNED: 'Te reconocí, pero no tienes ningún rol asignado',
+  NO_PERMISSION_FOR_ZONE: 'Te reconocí, pero no tienes acceso a esta zona',
+  OUTSIDE_SCHEDULE: 'Te reconocí, pero estás fuera de tu horario',
+  ASSIGNMENT_EXPIRED: 'Te reconocí, pero tu acceso ha caducado',
+  ACCESS_POINT_DISABLED: 'Esta puerta no está disponible',
 };
 
 /**
@@ -90,7 +98,13 @@ export function useFaceAuth({
       setPhase('searching');
     } else if (result.reason === 'INSUFFICIENT_VOTES') {
       setPhase('verifying');
-    } else if (result.reason === 'BELOW_THRESHOLD') {
+    } else if (
+      result.reason === 'BELOW_THRESHOLD' ||
+      result.reason.startsWith('NO_') ||
+      result.reason === 'OUTSIDE_SCHEDULE' ||
+      result.reason === 'ASSIGNMENT_EXPIRED' ||
+      result.reason === 'ACCESS_POINT_DISABLED'
+    ) {
       setPhase('denied');
     } else {
       setPhase('detected');

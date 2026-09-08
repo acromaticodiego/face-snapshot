@@ -34,7 +34,13 @@ export type AccessReason =
   | 'MULTIPLE_FACES'
   | 'LOW_QUALITY'
   | 'INSUFFICIENT_VOTES'
-  | 'PERSON_SUSPENDED';
+  | 'PERSON_SUSPENDED'
+  // Reconocido, pero sin permiso para pasar por aquí y ahora.
+  | 'NO_ROLE_ASSIGNED'
+  | 'NO_PERMISSION_FOR_ZONE'
+  | 'OUTSIDE_SCHEDULE'
+  | 'ASSIGNMENT_EXPIRED'
+  | 'ACCESS_POINT_DISABLED';
 
 export interface VerifyFrameResponse {
   authenticated: boolean;
@@ -49,6 +55,8 @@ export interface VerifyFrameResponse {
   sessionKey: string;
   votes: { current: number; required: number };
   accessToken?: string;
+  /** Dónde está este terminal. */
+  location?: { site: string; zone: string; accessPoint: string };
 }
 
 export interface Person {
@@ -127,6 +135,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * Puerta física en la que está montado este terminal.
+ *
+ * Va en la configuración del despliegue, NO la elige quien entra: si el
+ * usuario pudiera escoger el punto de acceso, bastaría con decir que
+ * está en una puerta a la que sí tiene permiso.
+ */
+const TERMINAL_KEY = import.meta.env.VITE_TERMINAL_KEY ?? 'main-entrance';
+
 export const api = {
   /** Envía un frame y recibe el veredicto de acceso. */
   async verifyFrame(
@@ -136,6 +153,7 @@ export const api = {
   ): Promise<VerifyFrameResponse> {
     const form = new FormData();
     form.append('file', frame, 'frame.jpg');
+    form.append('terminalKey', TERMINAL_KEY);
     if (sessionKey) form.append('sessionKey', sessionKey);
 
     return request<VerifyFrameResponse>('/auth/verify-frame', {

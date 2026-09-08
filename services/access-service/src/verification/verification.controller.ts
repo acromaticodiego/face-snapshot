@@ -39,6 +39,7 @@ export class VerificationController {
   @UseInterceptors(FileInterceptor('file'))
   async verifyFrame(
     @UploadedFile() file: UploadedImage,
+    @Body('terminalKey') terminalKey?: string,
     @Body('sessionKey') sessionKey?: string,
     @Body('cameraId') cameraId?: string,
   ) {
@@ -50,6 +51,9 @@ export class VerificationController {
       mimetype: image.mimetype,
       sessionKey: sessionKey || undefined,
       cameraId: cameraId || 'default',
+      // Identifica la puerta física. Sin ella no se puede autorizar:
+      // el permiso depende de la zona, no solo de la persona.
+      terminalKey: terminalKey || '',
     });
   }
 }

@@ -6,6 +6,8 @@ import type { JwtSignOptions } from '@nestjs/jwt';
 
 import { AccessLogsService } from '../logs/access-logs.service';
 import { FaceClient, IdentifiedFace } from '../face/face.client';
+import { PolicyService } from '../policy/policy.service';
+import type { AccessPointContext } from '../policy/policy.repository';
 import { VoteWindowService } from './vote-window.service';
 
 export type AccessReason =
@@ -15,7 +17,13 @@ export type AccessReason =
   | 'MULTIPLE_FACES'
   | 'LOW_QUALITY'
   | 'INSUFFICIENT_VOTES'
-  | 'PERSON_SUSPENDED';
+  | 'PERSON_SUSPENDED'
+  // Autorizacion: la persona SI fue reconocida, pero no puede pasar.
+  | 'NO_ROLE_ASSIGNED'
+  | 'NO_PERMISSION_FOR_ZONE'
+  | 'OUTSIDE_SCHEDULE'
+  | 'ASSIGNMENT_EXPIRED'
+  | 'ACCESS_POINT_DISABLED';
 
 export interface FaceVerdict {
   bbox: { x: number; y: number; width: number; height: number };
@@ -37,6 +45,8 @@ export interface VerifyFrameResult {
   sessionKey: string;
   votes: { current: number; required: number };
   accessToken?: string;
+  /** Contexto del terminal, para que la interfaz sepa dónde está. */
+  location?: { site: string; zone: string; accessPoint: string };
 }
 
 /**
@@ -64,6 +74,7 @@ export class VerificationService {
     private readonly faceClient: FaceClient,
     private readonly votes: VoteWindowService,
     private readonly logs: AccessLogsService,
+    private readonly policy: PolicyService,
     private readonly jwt: JwtService,
     config: ConfigService,
   ) {
@@ -79,7 +90,29 @@ export class VerificationService {
     mimetype: string;
     sessionKey?: string;
     cameraId: string;
+    terminalKey: string;
   }): Promise<VerifyFrameResult> {
+    // El terminal se resuelve ANTES de mirar la imagen. Una clave
+    // desconocida no debe poder abrir nada, ni siquiera con un rostro
+    // perfectamente registrado: es la puerta la que tiene que ser
+    // legítima, no solo la cara.
+    const point = await this.policy.resolveAccessPoint(params.terminalKey);
+    if (!point) {
+      this.logger.warn(`Terminal desconocido: ${params.terminalKey}`);
+      return {
+        authenticated: false,
+        person: null,
+        confidence: 0,
+        bbox: null,
+        faces: [],
+        imageWidth: 0,
+        imageHeight: 0,
+        reason: 'ACCESS_POINT_DISABLED',
+        sessionKey: params.sessionKey ?? this.votes.createKey(),
+        votes: { current: 0, required: 0 },
+      };
+    }
+
     const recognition = await this.faceClient.identify(
       params.image,
       params.filename,
@@ -95,6 +128,7 @@ export class VerificationService {
         imageWidth: recognition.imageWidth,
         imageHeight: recognition.imageHeight,
         cameraId: params.cameraId,
+        point,
         // Un frame sin rostro no se audita: la cámara genera cinco por
         // segundo y llenaría la tabla de ruido sin valor forense.
         skipLog: true,
@@ -113,6 +147,7 @@ export class VerificationService {
         imageWidth: recognition.imageWidth,
         imageHeight: recognition.imageHeight,
         cameraId: params.cameraId,
+        point,
       });
     }
 
@@ -129,6 +164,7 @@ export class VerificationService {
         confidence: face.bestSimilarity,
         reason: 'BELOW_THRESHOLD',
         cameraId: params.cameraId,
+        point,
       });
 
       return {
@@ -142,10 +178,51 @@ export class VerificationService {
         reason: 'BELOW_THRESHOLD',
         sessionKey: vote.sessionKey,
         votes: { current: 0, required: vote.required },
+        location: this.toLocation(point),
       };
     }
 
-    // ── Caso 4: reconocido; se acumula el voto ────────────────────
+    // ── Caso 4: reconocido, pero ¿puede pasar por AQUI y AHORA? ───
+    //
+    // La autorización se comprueba ANTES de acumular votos. Si alguien
+    // no tiene permiso en esta zona, hacerle esperar tres frames para
+    // decirle que no sería gratuito y confuso: el veredicto ya se
+    // conoce desde el primero.
+    const authorization = await this.policy.authorize(
+      face.match.personId,
+      point,
+    );
+
+    if (!authorization.allowed) {
+      await this.logs.record({
+        personId: face.match.personId,
+        personName: face.match.fullName,
+        authenticated: false,
+        confidence: face.match.similarity,
+        reason: authorization.reason,
+        cameraId: params.cameraId,
+        point,
+      });
+
+      return {
+        authenticated: false,
+        // Se devuelve la persona aunque se deniegue: quien está delante
+        // merece saber que SI se le reconoció y que el problema es de
+        // permisos, no de identidad.
+        person: null,
+        confidence: face.match.similarity,
+        bbox: face.bbox,
+        faces: [{ ...verdict, recognized: true }],
+        imageWidth: recognition.imageWidth,
+        imageHeight: recognition.imageHeight,
+        reason: authorization.reason,
+        sessionKey: params.sessionKey ?? this.votes.createKey(),
+        votes: { current: 0, required: 0 },
+        location: this.toLocation(point),
+      };
+    }
+
+    // ── Caso 5: autorizado; se acumula el voto ────────────────────
     const vote = this.votes.record(
       params.sessionKey,
       face.match.personId,
@@ -165,10 +242,11 @@ export class VerificationService {
         reason: 'INSUFFICIENT_VOTES',
         sessionKey: vote.sessionKey,
         votes: { current: vote.current, required: vote.required },
+        location: this.toLocation(point),
       };
     }
 
-    // ── Caso 5: acceso concedido ──────────────────────────────────
+    // ── Caso 6: acceso concedido ──────────────────────────────────
     const session = await this.logs.openSession({
       personId: face.match.personId,
       personName: face.match.fullName,
@@ -183,6 +261,7 @@ export class VerificationService {
       reason: 'GRANTED',
       cameraId: params.cameraId,
       sessionId: session.id,
+      point,
     });
 
     const accessToken = await this.jwt.signAsync(
@@ -211,6 +290,15 @@ export class VerificationService {
       sessionKey: vote.sessionKey,
       votes: { current: vote.current, required: vote.required },
       accessToken,
+      location: this.toLocation(point),
+    };
+  }
+
+  private toLocation(point: AccessPointContext) {
+    return {
+      site: point.siteName,
+      zone: point.zoneName,
+      accessPoint: point.accessPointName,
     };
   }
 
@@ -231,6 +319,7 @@ export class VerificationService {
     imageWidth: number;
     imageHeight: number;
     cameraId: string;
+    point: AccessPointContext;
     skipLog?: boolean;
   }): Promise<VerifyFrameResult> {
     if (!params.skipLog) {
@@ -241,6 +330,7 @@ export class VerificationService {
         confidence: 0,
         reason: params.reason,
         cameraId: params.cameraId,
+        point: params.point,
       });
     }
 
@@ -255,6 +345,7 @@ export class VerificationService {
       reason: params.reason,
       sessionKey: params.sessionKey,
       votes: { current: 0, required: 0 },
+      location: this.toLocation(params.point),
     };
   }
 }

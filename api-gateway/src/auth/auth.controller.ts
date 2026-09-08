@@ -44,6 +44,7 @@ export class AuthController {
   @UseInterceptors(FileInterceptor('file'))
   async verifyFrame(
     @UploadedFile() file: UploadedImage,
+    @Body('terminalKey') terminalKey?: string,
     @Body('sessionKey') sessionKey?: string,
     @Body('cameraId') cameraId?: string,
   ) {
@@ -55,6 +56,7 @@ export class AuthController {
       mimetype: image.mimetype,
       sessionKey,
       cameraId,
+      terminalKey,
     });
   }
 }
