@@ -11,6 +11,17 @@ export interface AccessPointContext {
   zoneId: string;
   zoneName: string;
   zoneActive: boolean;
+  /** Como trata esta zona el intento de entrar sin haber salido. */
+  antipassbackMode: 'HARD' | 'SOFT' | 'OFF';
+  /**
+   * Si el tiempo pasado aqui cuenta como jornada.
+   *
+   * Viaja con el contexto para que el evento de acceso lo lleve
+   * denormalizado: asi el Shift Service interpreta un paso sin tener
+   * que preguntar a este servicio, que es lo que lo mantiene fuera del
+   * camino critico.
+   */
+  shiftEffect: 'WORK' | 'BREAK' | 'NEUTRAL';
   siteId: string;
   siteName: string;
   timezone: string;
@@ -52,6 +63,8 @@ export class PolicyRepository {
       zoneId: point.zone.id,
       zoneName: point.zone.name,
       zoneActive: point.zone.isActive && point.zone.site.isActive,
+      antipassbackMode: point.zone.antipassbackMode,
+      shiftEffect: point.zone.shiftEffect,
       siteId: point.zone.site.id,
       siteName: point.zone.site.name,
       timezone: point.zone.site.timezone,

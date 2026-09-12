@@ -157,6 +157,9 @@ services:
       # 'memory' fuerza la votación local aunque haya Redis. Útil para
       # depurar sin el ruido de otras réplicas.
       VOTE_WINDOW_BACKEND: ${VOTE_WINDOW_BACKEND:-redis}
+      # Dos lecturas del mismo rostro en la misma puerta dentro de esta
+      # ventana son el mismo paso, no dos.
+      ANTIPASSBACK_GRACE_SECONDS: ${ANTIPASSBACK_GRACE_SECONDS:-10}
     expose:
       - '3002'
     depends_on:

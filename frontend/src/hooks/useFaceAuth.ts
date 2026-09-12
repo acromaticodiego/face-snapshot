@@ -35,6 +35,10 @@ const MESSAGES: Record<AccessReason, string> = {
   OUTSIDE_SCHEDULE: 'Te reconocí, pero estás fuera de tu horario',
   ASSIGNMENT_EXPIRED: 'Te reconocí, pero tu acceso ha caducado',
   ACCESS_POINT_DISABLED: 'Esta puerta no está disponible',
+  // No es un problema de permisos: la persona puede pasar, pero el
+  // sistema no la ha visto salir. Decir "acceso denegado" a secas
+  // haría que quien está delante buscase el error en su cara.
+  ANTIPASSBACK_VIOLATION: 'Ya constas dentro: registra primero la salida',
 };
 
 /**
@@ -103,7 +107,8 @@ export function useFaceAuth({
       result.reason.startsWith('NO_') ||
       result.reason === 'OUTSIDE_SCHEDULE' ||
       result.reason === 'ASSIGNMENT_EXPIRED' ||
-      result.reason === 'ACCESS_POINT_DISABLED'
+      result.reason === 'ACCESS_POINT_DISABLED' ||
+      result.reason === 'ANTIPASSBACK_VIOLATION'
     ) {
       setPhase('denied');
     } else {

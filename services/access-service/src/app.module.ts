@@ -11,6 +11,8 @@ import { AccessLogsService } from './logs/access-logs.service';
 import { PolicyController } from './policy/policy.controller';
 import { PolicyRepository } from './policy/policy.repository';
 import { PolicyService } from './policy/policy.service';
+import { PassageService } from './presence/passage.service';
+import { PresenceService } from './presence/presence.service';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisModule } from './redis/redis.module';
 import { VerificationController } from './verification/verification.controller';
@@ -61,6 +63,8 @@ import {
     voteWindowStoreProvider,
     PolicyService,
     PolicyRepository,
+    PresenceService,
+    PassageService,
     AccessLogsService,
     FaceClient,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

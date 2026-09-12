@@ -4,10 +4,13 @@ import { JwtService } from '@nestjs/jwt';
 
 import type { JwtSignOptions } from '@nestjs/jwt';
 
-import { AccessLogsService } from '../logs/access-logs.service';
+import { AccessLogsService, parseTtlMs } from '../logs/access-logs.service';
 import { FaceClient, IdentifiedFace } from '../face/face.client';
 import { PolicyService } from '../policy/policy.service';
 import type { AccessPointContext } from '../policy/policy.repository';
+import type { Passage } from '../presence/antipassback.engine';
+import { PassageService } from '../presence/passage.service';
+import { PresenceService } from '../presence/presence.service';
 import {
   VOTE_WINDOW_STORE,
   type VoteWindowStore,
@@ -26,7 +29,9 @@ export type AccessReason =
   | 'NO_PERMISSION_FOR_ZONE'
   | 'OUTSIDE_SCHEDULE'
   | 'ASSIGNMENT_EXPIRED'
-  | 'ACCESS_POINT_DISABLED';
+  | 'ACCESS_POINT_DISABLED'
+  // Anti-passback: te reconozco y puedes pasar, pero ya constas dentro.
+  | 'ANTIPASSBACK_VIOLATION';
 
 export interface FaceVerdict {
   bbox: { x: number; y: number; width: number; height: number };
@@ -50,7 +55,32 @@ export interface VerifyFrameResult {
   accessToken?: string;
   /** Contexto del terminal, para que la interfaz sepa dónde está. */
   location?: { site: string; zone: string; accessPoint: string };
+  /**
+   * Sentido del paso concedido.
+   *
+   * Solo presente cuando se concede. La pantalla de bienvenida lo
+   * necesita para no saludar con un "buenos días" a quien acaba de
+   * fichar la salida.
+   */
+  passage?: Passage;
 }
+
+/**
+ * Anomalia que corresponde a cada desenlace del anti-passback.
+ *
+ * Se define como tabla y no con condicionales para que quede a la
+ * vista que hay exactamente cuatro desenlaces y que solo dos dejan
+ * rastro de anomalia. `DENY` no aparece porque no llega hasta aqui:
+ * se resuelve antes de conceder nada.
+ */
+const ANOMALY_BY_OUTCOME = {
+  ALLOW: null,
+  ALLOW_SOFT: 'ANTIPASSBACK_SOFT',
+  ALLOW_REPEAT: 'DUPLICATE_PASSAGE',
+} as const satisfies Record<
+  'ALLOW' | 'ALLOW_SOFT' | 'ALLOW_REPEAT',
+  'ANTIPASSBACK_SOFT' | 'DUPLICATE_PASSAGE' | null
+>;
 
 /**
  * Decide si se concede el acceso.
@@ -79,6 +109,8 @@ export class VerificationService {
     private readonly votes: VoteWindowStore,
     private readonly logs: AccessLogsService,
     private readonly policy: PolicyService,
+    private readonly presence: PresenceService,
+    private readonly passages: PassageService,
     private readonly jwt: JwtService,
     config: ConfigService,
   ) {
@@ -230,7 +262,51 @@ export class VerificationService {
       };
     }
 
-    // ── Caso 5: autorizado; se acumula el voto ────────────────────
+    // ── Caso 5: ¿es coherente este paso con donde esta? ───────────
+    //
+    // El anti-passback se evalua aqui, junto a la politica y antes de
+    // votar, por el mismo motivo: el veredicto ya se conoce desde el
+    // primer frame y hacer esperar tres seria gratuito.
+    //
+    // Se evalua ahora y se aplica despues de la votacion, asi que hay
+    // aproximadamente un segundo entre la lectura del estado y su
+    // escritura. En esa ventana solo caben frames de ESTA MISMA
+    // persona -la presencia es suya y solo suya-, y una persona no
+    // puede estar en dos puertas a la vez.
+    const now = new Date();
+    const antipassback = await this.presence.evaluate(
+      face.match.personId,
+      point,
+      now,
+    );
+
+    if (antipassback.outcome === 'DENY') {
+      await this.logs.record({
+        personId: face.match.personId,
+        personName: face.match.fullName,
+        authenticated: false,
+        confidence: face.match.similarity,
+        reason: 'ANTIPASSBACK_VIOLATION',
+        cameraId: params.cameraId,
+        point,
+      });
+
+      return {
+        authenticated: false,
+        person: null,
+        confidence: face.match.similarity,
+        bbox: face.bbox,
+        faces: [{ ...verdict, recognized: true }],
+        imageWidth: recognition.imageWidth,
+        imageHeight: recognition.imageHeight,
+        reason: 'ANTIPASSBACK_VIOLATION',
+        sessionKey: params.sessionKey ?? this.votes.createKey(),
+        votes: { current: 0, required: 0 },
+        location: this.toLocation(point),
+      };
+    }
+
+    // ── Caso 6: autorizado; se acumula el voto ────────────────────
     const vote = await this.votes.record(
       params.sessionKey,
       face.match.personId,
@@ -254,36 +330,38 @@ export class VerificationService {
       };
     }
 
-    // ── Caso 6: acceso concedido ──────────────────────────────────
-    const session = await this.logs.openSession({
+    // ── Caso 7: acceso concedido ──────────────────────────────────
+    //
+    // La sesion, el asiento de auditoria y la presencia se escriben en
+    // una sola transaccion. Si fueran escrituras sueltas y el proceso
+    // muriera en medio, quedarian estados imposibles: alguien con
+    // sesion abierta a quien el sistema cree fuera.
+    const session = await this.passages.registerGrant({
       personId: face.match.personId,
       personName: face.match.fullName,
-      ttl: String(this.sessionTtl),
-    });
-
-    await this.logs.record({
-      personId: face.match.personId,
-      personName: face.match.fullName,
-      authenticated: true,
       confidence: vote.averageSimilarity,
-      reason: 'GRANTED',
       cameraId: params.cameraId,
-      sessionId: session.id,
       point,
+      direction: antipassback.direction,
+      anomaly: ANOMALY_BY_OUTCOME[antipassback.outcome],
+      sessionTtlMs: parseTtlMs(String(this.sessionTtl)),
+      now,
     });
 
     const accessToken = await this.jwt.signAsync(
       {
         sub: face.match.personId,
         name: face.match.fullName,
-        sid: session.id,
+        sid: session.sessionId,
         typ: 'access-session',
       },
       { expiresIn: this.sessionTtl },
     );
 
     this.logger.log(
-      `Acceso concedido a ${face.match.fullName} (similitud media ${vote.averageSimilarity.toFixed(3)})`,
+      `Acceso concedido a ${face.match.fullName}: ` +
+        `${antipassback.direction === 'IN' ? 'entrada' : 'salida'} por ` +
+        `${point.accessPointName} (similitud media ${vote.averageSimilarity.toFixed(3)})`,
     );
 
     return {
@@ -299,6 +377,7 @@ export class VerificationService {
       votes: { current: vote.current, required: vote.required },
       accessToken,
       location: this.toLocation(point),
+      passage: antipassback.direction,
     };
   }
 

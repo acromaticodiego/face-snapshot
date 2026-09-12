@@ -16,7 +16,8 @@ type AccessReason =
   | 'NO_PERMISSION_FOR_ZONE'
   | 'OUTSIDE_SCHEDULE'
   | 'ASSIGNMENT_EXPIRED'
-  | 'ACCESS_POINT_DISABLED';
+  | 'ACCESS_POINT_DISABLED'
+  | 'ANTIPASSBACK_VIOLATION';
 
 @Injectable()
 export class AccessLogsService {
@@ -71,25 +72,6 @@ export class AccessLogsService {
     }
   }
 
-  /** Abre una sesión tras un acceso concedido. */
-  async openSession(params: {
-    personId: string;
-    personName: string;
-    ttl: string;
-  }): Promise<{ id: string; expiresAt: Date }> {
-    const expiresAt = new Date(Date.now() + parseTtlMs(params.ttl));
-
-    const session = await this.prisma.accessSession.create({
-      data: {
-        personId: params.personId,
-        personName: params.personName,
-        expiresAt,
-      },
-    });
-
-    return { id: session.id, expiresAt: session.expiresAt };
-  }
-
   async findLogs(params: {
     skip?: number;
     take?: number;
@@ -115,7 +97,7 @@ export class AccessLogsService {
 }
 
 /** Convierte '15m', '2h', '30s' a milisegundos. */
-function parseTtlMs(ttl: string): number {
+export function parseTtlMs(ttl: string): number {
   const match = /^(\d+)\s*([smhd])$/.exec(ttl.trim());
   if (!match) return 15 * 60 * 1000;
 

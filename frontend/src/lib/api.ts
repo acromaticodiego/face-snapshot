@@ -40,7 +40,12 @@ export type AccessReason =
   | 'NO_PERMISSION_FOR_ZONE'
   | 'OUTSIDE_SCHEDULE'
   | 'ASSIGNMENT_EXPIRED'
-  | 'ACCESS_POINT_DISABLED';
+  | 'ACCESS_POINT_DISABLED'
+  // Reconocido y con permiso, pero el sistema ya te considera dentro.
+  | 'ANTIPASSBACK_VIOLATION';
+
+/** Sentido de un paso concedido. */
+export type Passage = 'IN' | 'OUT';
 
 export interface VerifyFrameResponse {
   authenticated: boolean;
@@ -57,6 +62,8 @@ export interface VerifyFrameResponse {
   accessToken?: string;
   /** Dónde está este terminal. */
   location?: { site: string; zone: string; accessPoint: string };
+  /** Si el acceso concedido fue una entrada o una salida. */
+  passage?: Passage;
 }
 
 export interface Person {
