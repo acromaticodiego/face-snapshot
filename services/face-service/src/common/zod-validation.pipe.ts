@@ -9,10 +9,10 @@ import { ZodType } from 'zod';
 /**
  * Valida el cuerpo de la petición contra un esquema Zod.
  *
- * Se usa Zod en lugar de class-validator porque los mismos esquemas se
- * comparten con el frontend y con el resto de servicios desde
- * `packages/contracts`: una sola definición del contrato, validada de
- * forma idéntica en ambos extremos.
+ * Se usa Zod en lugar de class-validator porque el esquema es un valor
+ * y no una anotación sobre una clase: se puede componer, derivar y
+ * —lo que aquí importa— reutilizar tal cual para validar lo que llega
+ * por el bus de eventos, donde no hay ninguna clase que decorar.
  */
 @Injectable()
 export class ZodValidationPipe implements PipeTransform {

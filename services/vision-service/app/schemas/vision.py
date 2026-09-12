@@ -1,4 +1,9 @@
-"""Esquemas Pydantic. Espejo exacto de packages/contracts/src/vision.contract.ts"""
+"""Esquemas Pydantic del Vision Service.
+
+Este modulo ES el contrato: el servicio que produce una respuesta es
+el que define su forma (ver docs/adr/0008). El Face Service, que es
+su unico consumidor, valida lo que recibe por su cuenta.
+"""
 
 from pydantic import BaseModel, Field
 
