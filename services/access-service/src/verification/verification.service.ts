@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
@@ -8,7 +8,10 @@ import { AccessLogsService } from '../logs/access-logs.service';
 import { FaceClient, IdentifiedFace } from '../face/face.client';
 import { PolicyService } from '../policy/policy.service';
 import type { AccessPointContext } from '../policy/policy.repository';
-import { VoteWindowService } from './vote-window.service';
+import {
+  VOTE_WINDOW_STORE,
+  type VoteWindowStore,
+} from './vote-window.store';
 
 export type AccessReason =
   | 'GRANTED'
@@ -72,7 +75,8 @@ export class VerificationService {
 
   constructor(
     private readonly faceClient: FaceClient,
-    private readonly votes: VoteWindowService,
+    @Inject(VOTE_WINDOW_STORE)
+    private readonly votes: VoteWindowStore,
     private readonly logs: AccessLogsService,
     private readonly policy: PolicyService,
     private readonly jwt: JwtService,
@@ -156,7 +160,11 @@ export class VerificationService {
 
     // ── Caso 3: rostro no reconocido ──────────────────────────────
     if (!face.match) {
-      const vote = this.votes.record(params.sessionKey, null, face.bestSimilarity);
+      const vote = await this.votes.record(
+        params.sessionKey,
+        null,
+        face.bestSimilarity,
+      );
       await this.logs.record({
         personId: null,
         personName: null,
@@ -223,7 +231,7 @@ export class VerificationService {
     }
 
     // ── Caso 5: autorizado; se acumula el voto ────────────────────
-    const vote = this.votes.record(
+    const vote = await this.votes.record(
       params.sessionKey,
       face.match.personId,
       face.match.similarity,

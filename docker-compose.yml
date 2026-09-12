@@ -8,9 +8,11 @@
 #  La primera construcción tarda: el Vision Service descarga PyTorch y
 #  los modelos de InsightFace (~700 MB en total).
 #
-#  DELIBERADAMENTE NO HAY Redis, RabbitMQ ni MinIO. El flujo principal
-#  funciona con REST síncrono; añadir esa infraestructura antes de
-#  necesitarla solo aportaría piezas que mantener.
+#  La decisión inicial fue no tener broker (ADR 0005). Se cumplieron
+#  dos de los disparadores que aquel ADR dejó anotados —la presencia
+#  debe salir del camino crítico y las ventanas de votación tienen que
+#  compartirse— y por eso ahora hay Redis, y solo Redis: ni RabbitMQ ni
+#  MinIO. El razonamiento está en el ADR 0007.
 # ══════════════════════════════════════════════════════════════════
 
 name: backend-detector
@@ -46,6 +48,39 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks: [detector-net]
+
+  # ── Bus de eventos y estado compartido ──────────────────────────
+  #
+  # Redis hace dos cosas y ninguna es decidir accesos:
+  #   · transporta los eventos de acceso hacia el Shift Service
+  #   · guarda las ventanas de votación compartidas entre réplicas
+  #
+  # Si se cae, las puertas siguen funcionando: la votación degrada a
+  # memoria y los eventos se acumulan en la outbox hasta que vuelva.
+  redis:
+    image: redis:8-alpine
+    container_name: detector-redis
+    restart: unless-stopped
+    # `appendonly` porque los eventos pendientes de consumir no deben
+    # perderse en un reinicio: son horas trabajadas de alguien.
+    command: >-
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory-policy noeviction
+    ports:
+      # 6380 y no 6379, por el mismo motivo que PostgreSQL usa 5433:
+      # es habitual tener ya un Redis nativo en el puerto estándar.
+      - '127.0.0.1:${REDIS_PORT:-6380}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks: [detector-net]
 
   # ── Visión: detección + embeddings ──────────────────────────────
@@ -114,11 +149,20 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
       RECOGNITION_VOTES_REQUIRED: ${RECOGNITION_VOTES_REQUIRED:-3}
       RECOGNITION_WINDOW_SIZE: ${RECOGNITION_WINDOW_SIZE:-5}
+      RECOGNITION_WINDOW_TTL_MS: ${RECOGNITION_WINDOW_TTL_MS:-10000}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
+      # Dentro de la red de Docker el puerto es el estándar; el 6380 de
+      # `ports` solo afecta a quien se conecte desde el host.
+      REDIS_URL: redis://redis:6379
+      # 'memory' fuerza la votación local aunque haya Redis. Útil para
+      # depurar sin el ruido de otras réplicas.
+      VOTE_WINDOW_BACKEND: ${VOTE_WINDOW_BACKEND:-redis}
     expose:
       - '3002'
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       face-service:
         condition: service_started
@@ -198,6 +242,8 @@ services:
 volumes:
   postgres-data:
     name: detector-postgres-data
+  redis-data:
+    name: detector-redis-data
 
 networks:
   detector-net:
