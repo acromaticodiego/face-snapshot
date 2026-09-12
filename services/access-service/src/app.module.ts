@@ -8,6 +8,7 @@ import { FaceClient } from './face/face.client';
 import { HealthController } from './health/health.controller';
 import { AccessLogsController } from './logs/access-logs.controller';
 import { AccessLogsService } from './logs/access-logs.service';
+import { OutboxRelay } from './outbox/outbox.relay';
 import { PolicyController } from './policy/policy.controller';
 import { PolicyRepository } from './policy/policy.repository';
 import { PolicyService } from './policy/policy.service';
@@ -65,6 +66,7 @@ import {
     PolicyRepository,
     PresenceService,
     PassageService,
+    OutboxRelay,
     AccessLogsService,
     FaceClient,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -415,3 +415,56 @@ model AccessSession {
   @@map("access_sessions")
   @@schema("access_svc")
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  Publicacion de eventos
+// ═══════════════════════════════════════════════════════════════════
+
+/// Eventos pendientes de publicar en el bus.
+///
+/// POR QUE UNA TABLA Y NO UN XADD DIRECTO
+/// --------------------------------------
+/// Porque escribir en PostgreSQL y publicar en Redis no se pueden
+/// hacer de forma atomica: son dos sistemas distintos. Si se publicara
+/// justo despues de confirmar la transaccion, un fallo del proceso
+/// entre ambas cosas perderia el evento sin dejar rastro.
+///
+/// Aqui importa mas que en otros dominios. Un evento de acceso perdido
+/// no es un dato de telemetria que se pueda estimar despues: son horas
+/// trabajadas que no se le computan a una persona.
+///
+/// Escribiendo el evento en la MISMA transaccion que el asiento de
+/// auditoria, o se guardan los dos o no se guarda ninguno. El relay lo
+/// publica despues, y si publica dos veces no pasa nada: el consumidor
+/// es idempotente por `eventId`.
+model OutboxEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Nombre del evento, p.ej. "AccessGranted".
+  type String @db.VarChar(80)
+
+  /// A quien se refiere. Sirve para investigar y para reprocesar los
+  /// eventos de una persona concreta sin leer la tabla entera.
+  aggregateId String @map("aggregate_id") @db.Uuid
+
+  payload Json
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// Nulo mientras esta pendiente. Es la unica columna que mira el
+  /// relay, y por eso el indice es parcial: la tabla crece con el
+  /// historico pero el indice solo con lo pendiente, que en operacion
+  /// normal son unas pocas filas.
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+
+  /// Intentos fallidos. Un evento que no consigue salir tras varios
+  /// intentos es una averia que alguien tiene que mirar, no algo que
+  /// deba reintentarse para siempre en silencio.
+  attempts  Int     @default(0)
+  lastError String? @map("last_error") @db.VarChar(500)
+
+  @@index([createdAt])
+  @@index([aggregateId])
+  @@map("outbox_events")
+  @@schema("access_svc")
+}

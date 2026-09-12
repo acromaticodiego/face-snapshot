@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
+import type { AccessGrantedEvent } from '../outbox/access-events';
 import type { AccessPointContext } from '../policy/policy.repository';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Passage } from './antipassback.engine';
@@ -11,11 +13,10 @@ import type { Passage } from './antipassback.engine';
  * ───────────────────────────────────
  * Conceder el acceso son cuatro escrituras que solo tienen sentido
  * juntas: la sesión emitida, el asiento de auditoría, la presencia y
- * —desde el commit siguiente— el evento que alimenta la jornada
- * laboral. Si se hicieran por separado y el proceso muriese en medio,
- * quedarían estados imposibles: alguien con sesión abierta que el
- * sistema cree fuera, o unas horas trabajadas que no corresponden a
- * ningún acceso.
+ * el evento que alimenta la jornada laboral. Si se hicieran por
+ * separado y el proceso muriese en medio, quedarían estados
+ * imposibles: alguien con sesión abierta a quien el sistema cree
+ * fuera, o unas horas trabajadas que no corresponden a ningún acceso.
  *
  * POR QUE ESTA ESCRITURA SI PUEDE TUMBAR LA CONCESION
  * ──────────────────────────────────────────────────
@@ -61,6 +62,8 @@ export class PassageService {
   async registerGrant(
     grant: GrantedPassage,
   ): Promise<{ sessionId: string; expiresAt: Date }> {
+    // Una lectura repetida no mueve la presencia ni genera evento: no
+    // hubo un paso nuevo que contar. Se audita, y ahí acaba.
     const movesPresence = grant.anomaly !== 'DUPLICATE_PASSAGE';
 
     return this.prisma.$transaction(async (tx) => {
@@ -120,6 +123,22 @@ export class PassageService {
             lastPassageAt: grant.now,
           },
         });
+
+        // El evento sale por la outbox y no por un XADD directo: si se
+        // publicara justo despues de confirmar la transaccion, un
+        // fallo del proceso entre ambas cosas perderia el paso, y un
+        // paso perdido son horas que no se le computan a alguien.
+        const event = buildAccessGrantedEvent(grant);
+        await tx.outboxEvent.create({
+          data: {
+            id: event.eventId,
+            type: event.type,
+            aggregateId: grant.personId,
+            // Se guarda completo: quien lo consuma no debe tener que
+            // volver a preguntar nada.
+            payload: { ...event },
+          },
+        });
       }
 
       if (grant.anomaly) {
@@ -132,4 +151,37 @@ export class PassageService {
       return { sessionId: session.id, expiresAt: session.expiresAt };
     });
   }
+}
+
+/**
+ * Construye el evento a partir de la concesión.
+ *
+ * Es una función aparte y pura para poder comprobar en una prueba que
+ * el contrato que sale por el bus es el que se espera. Un evento mal
+ * formado no rompe nada aquí: rompe en el consumidor, horas después y
+ * en otro servicio.
+ */
+export function buildAccessGrantedEvent(
+  grant: GrantedPassage,
+): AccessGrantedEvent {
+  return {
+    eventId: randomUUID(),
+    type: 'AccessGranted',
+    occurredAt: grant.now.toISOString(),
+    personId: grant.personId,
+    personName: grant.personName,
+    siteId: grant.point.siteId,
+    siteName: grant.point.siteName,
+    zoneId: grant.point.zoneId,
+    zoneName: grant.point.zoneName,
+    zoneShiftEffect: grant.point.shiftEffect,
+    accessPointId: grant.point.accessPointId,
+    accessPointName: grant.point.accessPointName,
+    direction: grant.direction,
+    // `DUPLICATE_PASSAGE` no llega hasta aquí: esa lectura no genera
+    // evento. La única anomalía que un consumidor puede ver es la del
+    // anti-passback blando, y le importa porque significa que la
+    // presencia venía descuadrada.
+    anomaly: grant.anomaly === 'ANTIPASSBACK_SOFT' ? 'ANTIPASSBACK_SOFT' : null,
+  };
 }

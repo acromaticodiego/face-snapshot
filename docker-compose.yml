@@ -160,6 +160,9 @@ services:
       # Dos lecturas del mismo rostro en la misma puerta dentro de esta
       # ventana son el mismo paso, no dos.
       ANTIPASSBACK_GRACE_SECONDS: ${ANTIPASSBACK_GRACE_SECONDS:-10}
+      OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
+      OUTBOX_RETENTION_HOURS: ${OUTBOX_RETENTION_HOURS:-168}
     expose:
       - '3002'
     depends_on:
