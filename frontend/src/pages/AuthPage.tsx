@@ -53,16 +53,19 @@ export function AuthPage() {
   const [source, setSource] = useState({ width: 640, height: 480 });
 
   const handleGranted = useCallback(
-    (person: { id: string; name: string }, token?: string) => {
+    (person: { id: string; name: string }, token?: string, passage?: 'IN' | 'OUT') => {
       // La sesión la emite el backend; el frontend solo la transporta.
       if (token) sessionStorage.setItem('accessToken', token);
 
       // Pausa para que dé tiempo a leer el nombre en la confirmación
       // verde antes de cambiar de pantalla.
       setTimeout(() => {
-        navigate('/bienvenida', {
+        navigate('/home', {
           replace: true,
-          state: { name: person.name, id: person.id },
+          // El sentido del paso viaja para que la pantalla salude o se
+          // despida: a quien acaba de fichar la salida no se le dan los
+          // buenos días.
+          state: { name: person.name, id: person.id, passage },
         });
       }, 2000);
     },
