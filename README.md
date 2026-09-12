@@ -34,7 +34,7 @@ frontend solo dibuja lo que el backend le dice.
                         ┌────────────▼─────────────┐
                         │   API GATEWAY (NestJS)   │
                         │  el único puerto abierto │
-                        │  guard de administración │
+                        │  guard admin · guard /me │
                         └──┬────────┬────────┬─────┘
            ┌───────────────┘        │        └───────────────┐
            ▼                        ▼                        ▼
@@ -44,27 +44,41 @@ frontend solo dibuja lo que el backend le dice.
  │                   │   │                    │   │                    │
  │ · login admin     │   │ · personas (CRUD)  │   │ · política acceso  │
  │ · argon2id        │   │ · enrolar rostro   │   │ · votación frames  │
- │ · emite JWT admin │   │ · búsqueda vector  │   │ · auditoría        │
- └─────────┬─────────┘   └─────────┬──────────┘   └─────────┬──────────┘
-           │                       │ imagen                 │
-           │                       ▼                        │
-           │             ┌────────────────────┐             │
-           │             │   VISION SERVICE   │             │
-           │             │  Python + FastAPI  │             │
-           │             │    ⚠ SIN ESTADO    │             │
-           │             │                    │             │
-           │             │ · rostros.pt       │             │
-           │             │ · landmarks        │             │
-           │             │ · ArcFace          │             │
-           │             └────────────────────┘             │
-           │                                                │
-           ▼                                                ▼
-      ┌──────────────────────────────────────────────────────────┐
-      │              PostgreSQL 17 + pgvector                    │
-      │     auth_svc   ·   face_svc   ·   access_svc             │
-      │        (un schema y un rol por servicio)                 │
-      └──────────────────────────────────────────────────────────┘
+ │ · emite JWT admin │   │ · búsqueda vector  │   │ · anti-passback    │
+ │                   │   │                    │   │ · PRESENCIA        │
+ └─────────┬─────────┘   └─────────┬──────────┘   └────┬──────────┬────┘
+           │                       │ imagen            │          │
+           │                       ▼                   │  evento  │
+           │             ┌────────────────────┐        │  (outbox)│
+           │             │   VISION SERVICE   │        │          ▼
+           │             │  Python + FastAPI  │        │   ┌─────────────┐
+           │             │    ⚠ SIN ESTADO    │        │   │    REDIS    │
+           │             │                    │        │   │   Streams   │
+           │             │ · rostros.pt       │        │   └──────┬──────┘
+           │             │ · landmarks        │        │          │
+           │             │ · ArcFace          │        │          ▼
+           │             └────────────────────┘        │   ┌─────────────────┐
+           │                                           │   │  SHIFT SERVICE  │
+           │                                           │   │ NestJS + Prisma │
+           │                                           │   │                 │
+           │                                           │   │ · estados turno │
+           │                                           │   │ · línea tiempo  │
+           │                                           │   │ · horas         │
+           │                                           │   │ ⚠ PROYECCIÓN    │
+           │                                           │   └────────┬────────┘
+           ▼                                           ▼            ▼
+      ┌──────────────────────────────────────────────────────────────────┐
+      │                    PostgreSQL 17 + pgvector                      │
+      │      auth_svc  ·  face_svc  ·  access_svc  ·  shift_svc          │
+      │            (un schema y un rol por servicio)                     │
+      └──────────────────────────────────────────────────────────────────┘
 ```
+
+La flecha de la derecha es la parte nueva y va **en un solo sentido**.
+El Access Service publica lo que ocurrió; el Shift Service lo
+interpreta. Nunca al revés: si el Shift Service se cae, las puertas
+siguen funcionando y los eventos esperan en la outbox. Ver
+[ADR 0007](docs/adr/0007-eventos-y-presencia.md).
 
 ### Responsabilidad de cada servicio
 
@@ -73,7 +87,8 @@ frontend solo dibuja lo que el backend le dice.
 | **api-gateway** | Punto de entrada único. Enruta, valida, aplica CORS y rate limiting, verifica el token de administración, normaliza errores. **Cero lógica de reconocimiento.** | — |
 | **auth-service** | Cuentas de administración. Verifica contraseñas con argon2id y emite el token que protege `/admin/*`. | schema `auth_svc` |
 | **face-service** | Dueño de las identidades y de los vectores faciales. Enrola, busca y elimina. | schema `face_svc` |
-| **access-service** | Decide si se concede el acceso. Votación multi-frame, auditoría, emisión de sesión. | schema `access_svc` |
+| **access-service** | Decide si se concede el acceso. Votación multi-frame, política, anti-passback, presencia, auditoría, emisión de sesión. **Única autoridad sobre si una puerta se abre.** | schema `access_svc` |
+| **shift-service** | Jornada laboral: estados de turno, línea de tiempo y horas. **Proyección de los eventos del Access Service**; no decide nada que abra una puerta. | schema `shift_svc` |
 | **vision-service** | Convierte píxeles en vectores. No conoce identidades ni toca la base de datos. | ninguna |
 
 ### Por qué las identidades están separadas así
@@ -168,6 +183,98 @@ suficiente y más rápido. Para escenas amplias, subir `YOLO_IMAGE_SIZE`.
 
 ---
 
+## Presencia, turnos y anti-passback
+
+Reconocer una cara resuelve *quién eres*. A partir de ahí el sistema
+lleva dos cosas más, y las lleva **por separado a propósito**.
+
+### La presencia física — Access Service
+
+Quién ha pasado por una zona y no ha salido. Se escribe en la **misma
+transacción** que la concesión del acceso, porque gobierna una puerta:
+
+> El estado que gobierna una puerta no puede ser eventualmente
+> consistente.
+
+Sobre ella funciona el **anti-passback**: no puedes entrar dos veces sin
+haber salido. Se configura por zona, con tres modos:
+
+| Modo | Qué hace | Para qué zona |
+|---|---|---|
+| `HARD` | Deniega el paso | Laboratorio, sala de servidores |
+| `SOFT` | Concede, corrige la presencia y anota la anomalía | Puerta de la calle |
+| `OFF` | No comprueba nada | Zonas sin lector de salida |
+
+El valor por defecto es `SOFT` y no `HARD`, porque al desplegar nadie ha
+"entrado" todavía según el sistema: con el modo estricto por defecto, el
+estreno del anti-passback consistiría en dejar a la plantilla encerrada.
+
+Un punto de acceso **bidireccional** deduce el sentido de la presencia:
+si estás fuera, entras; si estás dentro, sales. Y una segunda lectura en
+la misma puerta dentro de la **ventana de gracia** (10 s por defecto) es
+la misma persona seguida delante del lector, no un paso nuevo: se
+concede, se audita, y la presencia no se mueve.
+
+### La jornada laboral — Shift Service
+
+Su interpretación en términos de trabajo, proyectada desde los eventos:
+
+| Estado | Significa | ¿Computa? |
+|---|---|---|
+| `FUERA` | Sin jornada abierta | — |
+| `EN_TURNO` | Dentro y trabajando | Sí |
+| `EN_DESCANSO` | En una zona marcada como de descanso | No |
+| `EN_PAUSA` | Salió de la sede con la jornada abierta | Provisional |
+
+**`EN_PAUSA` es la pieza interesante.** Cuando alguien sale, el sistema
+no puede saber si volverá en diez minutos o si se ha ido a casa. Casi
+todos estos sistemas adivinan, y adivinan mal en las dos direcciones: o
+cierran la jornada en cuanto sales —y quien baja a por un café aparece
+con dos jornadas— o no la cierran nunca —y quien se va a casa acumula
+horas mientras duerme—.
+
+Aquí no se adivina. Salir abre una pausa declaradamente provisional, y
+el tiempo decide: si vuelve, la pausa se cierra y la jornada continúa;
+si no vuelve, el reconciliador la convierte en el cierre de la jornada
+**con la hora de inicio de la pausa**, no con la del momento en que se
+dio cuenta.
+
+Salir de una zona tampoco es salir del edificio: quien sale del
+laboratorio y sigue en las oficinas vuelve a estar en turno, no de
+pausa. Ese dato lo calcula el Access Service —el único que tiene la
+presencia— y viaja en el evento.
+
+### Cómo viajan los hechos entre los dos
+
+```
+concesión de acceso
+   │
+   └─ UNA transacción ─┬─ sesión emitida
+                       ├─ asiento de auditoría
+                       ├─ presencia actualizada
+                       └─ evento en la OUTBOX
+                                │
+                       relay (SKIP LOCKED)
+                                │
+                                ▼
+                       Redis Streams  access.events
+                                │
+                       grupo de consumidores
+                                │
+                                ▼
+                       Shift Service · idempotente por eventId
+```
+
+El evento no se publica directamente porque escribir en PostgreSQL y
+publicar en Redis no puede ser atómico: un fallo entre ambas cosas
+perdería el paso. Y aquí un paso perdido **son horas trabajadas que no
+se le computan a alguien**. La outbox lo convierte en "al menos una
+vez", que es la garantía que se quiere: entre repetir y perder, se
+repite; y repetir es inofensivo porque el consumidor descarta lo que ya
+vio.
+
+---
+
 ## Estructura del proyecto
 
 ```
@@ -190,9 +297,18 @@ backend_detector/
 │   ├── auth-service/         NestJS + Prisma · cuentas de administración
 │   │   └── src/admin/        login argon2id, bloqueo, primera cuenta
 │   │
+│   ├── shift-service/        NestJS + Prisma · jornada laboral
+│   │   └── src/
+│   │       ├── shifts/       máquina de estados y reconciliador
+│   │       ├── consumer/     grupo de consumidores de Redis Streams
+│   │       └── redis/        conexión al bus
+│   │
 │   ├── access-service/       NestJS + Prisma · decisión y auditoría
 │   │   └── src/
-│   │       ├── verification/ política de acceso y votación
+│   │       ├── verification/ votación multi-frame
+│   │       ├── policy/       motor de autorización (función pura)
+│   │       ├── presence/     presencia y anti-passback
+│   │       ├── outbox/       publicación de eventos al bus
 │   │       ├── logs/         registro de intentos
 │   │       └── face/         cliente del Face Service
 │   │
@@ -214,7 +330,6 @@ backend_detector/
 │       ├── hooks/            cámara y bucle de autenticación
 │       └── lib/              cliente de API
 │
-├── packages/contracts/       DTOs compartidos entre servicios
 ├── modelos/                  rostros.pt (solo lectura)
 ├── infrastructure/
 │   ├── docker/               Dockerfile común de NestJS
@@ -252,7 +367,12 @@ openssl rand -base64 48
 ```
 
 Rellena en `.env`: `POSTGRES_PASSWORD`, `FACE_SVC_DB_PASSWORD`,
-`ACCESS_SVC_DB_PASSWORD` y `JWT_SECRET`.
+`ACCESS_SVC_DB_PASSWORD`, `AUTH_SVC_DB_PASSWORD`, `SHIFT_SVC_DB_PASSWORD`
+y `JWT_SECRET`.
+
+> Genera las contraseñas de base de datos con `base64url` y no con
+> `base64`: un `/` o un `+` rompen la URL de conexión de Prisma.
+> `openssl rand -base64 24 | tr '+/' '-_'` sirve.
 
 ### Variables principales
 
@@ -271,6 +391,11 @@ Rellena en `.env`: `POSTGRES_PASSWORD`, `FACE_SVC_DB_PASSWORD`,
 | `ADMIN_TOKEN_EXPIRES_IN` | `8h` | Duración de la sesión de administración |
 | `ADMIN_BOOTSTRAP_EMAIL` | `admin@detector.local` | Correo de la primera cuenta |
 | `ADMIN_BOOTSTRAP_PASSWORD` | — | Contraseña inicial. Mínimo 12 caracteres |
+| `REDIS_URL` | `redis://localhost:6380` | Bus de eventos y ventanas de votación compartidas. Sin ella, votación en memoria y eventos en espera |
+| `VOTE_WINDOW_BACKEND` | `redis` | `redis` comparte las ventanas entre réplicas; `memory` las deja en el proceso |
+| `ANTIPASSBACK_GRACE_SECONDS` | `10` | Dos lecturas en la misma puerta dentro de esta ventana son el mismo paso |
+| `SHIFT_PAUSE_TIMEOUT_MINUTES` | `90` | Pasado este tiempo, una pausa se convierte en el cierre de la jornada |
+| `SHIFT_MAX_HOURS` | `16` | Una jornada abierta más tiempo es alguien que se fue sin fichar |
 
 ---
 
@@ -288,15 +413,28 @@ modelos de InsightFace (~700 MB).
 | Frontend | http://localhost:5173 |
 | API Gateway | http://localhost:3000 |
 | Swagger del Gateway | http://localhost:3000/docs |
-| PostgreSQL | `127.0.0.1:5432` (solo local) |
+| PostgreSQL | `127.0.0.1:5433` (solo local) |
+| Redis | `127.0.0.1:6380` (solo local) |
 
 Aplica las migraciones la primera vez:
 
 ```bash
-docker compose exec face-service npx prisma migrate deploy
+docker compose exec face-service   npx prisma migrate deploy
 docker compose exec access-service npx prisma migrate deploy
-docker compose exec auth-service npx prisma migrate deploy
+docker compose exec auth-service   npx prisma migrate deploy
+docker compose exec shift-service  npx prisma migrate deploy
+docker compose exec access-service npx prisma db seed
 ```
+
+> **Si ya tenías el proyecto en marcha antes de la fase de turnos**, el
+> schema `shift_svc` no existe: los archivos de
+> `infrastructure/postgres/init/` solo se ejecutan al crear el volumen.
+> Aplícalo sin perder los rostros ya enrolados:
+>
+> ```bash
+> node scripts/apply-shift-schema.mjs
+> cd services/shift-service && npx prisma migrate deploy
+> ```
 
 ---
 
@@ -304,10 +442,14 @@ docker compose exec auth-service npx prisma migrate deploy
 
 Cada servicio en su propia terminal.
 
-**1. PostgreSQL**
+> Las migraciones leen la conexión del `.env` de la **raíz** del
+> proyecto. Un `.env` dentro del directorio del servicio, si existe,
+> tiene prioridad; no hace falta crearlo.
+
+**1. PostgreSQL y Redis**
 
 ```bash
-docker compose up postgres -d
+docker compose up postgres redis -d
 ```
 
 **2. Vision Service**
@@ -343,7 +485,16 @@ npx prisma migrate deploy
 npm run start:dev
 ```
 
-**5. API Gateway**
+**5. Shift Service**
+
+```bash
+cd services/shift-service
+npm install
+npx prisma migrate deploy
+npm run start:dev
+```
+
+**6. API Gateway**
 
 ```bash
 cd api-gateway
@@ -351,7 +502,7 @@ npm install
 npm run start:dev
 ```
 
-**6. Frontend**
+**7. Frontend**
 
 ```bash
 cd frontend
@@ -454,7 +605,33 @@ Para un rostro no registrado:
 
 Valores de `reason`: `GRANTED`, `BELOW_THRESHOLD`, `NO_FACE_DETECTED`,
 `MULTIPLE_FACES`, `LOW_QUALITY`, `INSUFFICIENT_VOTES`,
-`PERSON_SUSPENDED`.
+`PERSON_SUSPENDED`, `NO_ROLE_ASSIGNED`, `NO_PERMISSION_FOR_ZONE`,
+`OUTSIDE_SCHEDULE`, `ASSIGNMENT_EXPIRED`, `ACCESS_POINT_DISABLED`,
+`ANTIPASSBACK_VIOLATION`.
+
+Los cinco de autorización se distinguen de los de identificación a
+propósito: "no te reconozco" y "te reconozco pero no puedes pasar" son
+incidentes distintos para quien opera el sistema, y se investigan de
+forma distinta.
+
+Cuando se concede, la respuesta incluye además `passage`, con el sentido
+resuelto del paso (`IN` u `OUT`).
+
+### Sobre uno mismo
+
+**Exigen el token de sesión** que emite el Access Service al reconocer
+la cara. Un token de administración **no** sirve aquí, igual que el de
+sesión no sirve para administrar: estas rutas responden sobre el sujeto
+del token.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/me/shift` | Estado de turno y horas acumuladas |
+| `GET` | `/me/timeline` | Línea de tiempo de la jornada (`?date=AAAA-MM-DD`) |
+
+El identificador de la persona no viaja en la ruta ni en la consulta: se
+lee del token. Si se aceptara, cualquiera con una sesión válida podría
+leer la jornada de sus compañeros cambiando un parámetro.
 
 ### Administración
 
@@ -472,6 +649,12 @@ propio inicio de sesión.
 | `DELETE` | `/admin/persons/:id` | Elimina y **borra sus vectores** |
 | `POST` | `/admin/persons/:id/faces` | Enrola un rostro (multipart) |
 | `GET` | `/admin/access-logs` | Historial de intentos |
+| `GET` | `/admin/sites` | Sedes, zonas y puntos de acceso |
+| `GET` | `/admin/roles` | Roles y qué permite cada uno |
+| `POST` | `/admin/persons/:id/roles` | Asigna un rol |
+| `GET` | `/admin/presence` | Quién consta dentro y el aforo por zona |
+| `GET` | `/admin/shifts` | Jornadas abiertas y desglose por estado |
+| `GET` | `/admin/shifts/:personId/timeline` | Línea de tiempo de una jornada |
 | `GET` | `/health` | Estado de todos los servicios |
 
 **Ningún endpoint devuelve embeddings.**
@@ -503,7 +686,42 @@ access_svc.access_logs
 
 access_svc.access_sessions
   id · person_id · person_name · issued_at · expires_at · revoked_at
+
+access_svc.presence
+  person_id · zone_id · site_id · inside · last_direction
+  last_access_point_id · last_passage_at
+  clave primaria (person_id, zone_id)
+
+access_svc.outbox_events
+  id · type · aggregate_id · payload · published_at · attempts
+  índice PARCIAL sobre lo pendiente
+
+shift_svc.work_days
+  id · person_id · person_name · site_id · business_date · state
+  state_since · started_at · ended_at · closed_by
+  worked_seconds · break_seconds
+  índice único PARCIAL: una sola jornada abierta por persona
+
+shift_svc.timeline_entries
+  id · work_day_id · source_event_id (ÚNICO) · at · from_state · to_state
+  direction · zone_name · access_point_name
 ```
+
+**Tres de esos índices son parciales y ninguno es un detalle de
+rendimiento:**
+
+- `outbox_events` pendientes: la consulta del relay corre cada segundo y
+  su coste debe crecer con la cola, no con el histórico.
+- `work_days` con una sola jornada abierta por persona: es la invariante
+  que sostiene todo el servicio de turnos, y se impone en la base de
+  datos porque el código se salta con dos procesos concurrentes.
+- `timeline_entries.source_event_id` único: es lo que hace idempotente
+  al consumidor. El bus entrega "al menos una vez", así que el mismo
+  evento puede llegar dos veces; sin esa restricción, las horas se
+  contarían dos veces.
+
+Prisma no sabe expresar índices parciales, así que viven solo en las
+migraciones. Es otra de las razones por las que se escriben a mano.
 
 **`model_version` no es burocracia:** los embeddings de modelos
 distintos ocupan espacios vectoriales incompatibles. Sin esa columna, un
@@ -550,6 +768,15 @@ la persona se renombre o se elimine.
 - **Se rechaza el enrolamiento con varios rostros**, para no asociar la
   cara equivocada a un nombre.
 - **Se rechaza la autenticación con varios rostros** en el encuadre.
+- **Anti-passback**: no se puede entrar dos veces sin haber salido. En
+  las zonas en modo estricto se deniega el paso; en las demás se
+  concede, se corrige la presencia y queda anotada la anomalía.
+- **Un token de sesión facial no sirve para consultar la jornada de
+  otro.** Las rutas `/me/*` leen la identidad del token y no aceptan un
+  identificador de persona, así que no hay parámetro que manipular.
+- **La concesión es atómica.** Sesión, auditoría, presencia y evento se
+  escriben en una sola transacción: no puede quedar alguien con sesión
+  abierta a quien el sistema crea fuera.
 
 ### Lo que NO está implementado
 
@@ -582,10 +809,17 @@ consulta por petición en el guard, que hoy es puramente stateless.
 El token se guarda además en `sessionStorage`, no en una cookie
 `httpOnly`, así que un XSS podría robarlo. Ver ADR 0006.
 
-#### 3. Estado de votación en memoria
+#### 3. ~~Estado de votación en memoria~~ — resuelto
 
-Las ventanas viven en el proceso del Access Service. Con varias réplicas
-haría falta Redis o afinidad de sesión.
+Las ventanas de votación se comparten ahora en Redis, así que el Access
+Service ya puede replicarse. Queda la implementación en memoria como
+alternativa (`VOTE_WINDOW_BACKEND=memory`) y como modo de degradación:
+si Redis no responde, la votación cae a memoria en lugar de fallar. La
+dirección del fallo es segura —sin estado compartido cuesta **más**
+entrar, nunca menos—, así que se pierde eficiencia y no seguridad.
+
+Lo que **no** escala todavía es el consumidor del Shift Service: ver el
+punto 7.
 
 #### 4. Umbral sin calibrar con datos reales
 
@@ -603,6 +837,29 @@ o de disco.
 
 La configuración es de desarrollo. En producción hacen falta TLS y un
 proxy inverso: la cámara exige contexto seguro fuera de `localhost`.
+
+#### 7. El Shift Service no escala horizontalmente
+
+Con varios consumidores en el grupo de Redis, los eventos de una misma
+persona podrían procesarse a destiempo. La máquina de estados descarta
+lo que llega desordenado, así que el efecto sería perder transiciones y
+no corromperlas, pero escalar de verdad exigiría repartir los eventos
+por persona en varios streams. Ver [ADR 0007](docs/adr/0007-eventos-y-presencia.md).
+
+#### 8. Una ventana de un segundo en el anti-passback
+
+El anti-passback se evalúa al reconocer y se aplica tras la votación,
+así que hay aproximadamente un segundo entre leer el estado de presencia
+y escribirlo. En esa ventana solo caben frames de la misma persona, y
+una persona no puede estar en dos puertas a la vez — pero con el
+anti-spoofing todavía pendiente (limitación 1), una fotografía en una
+segunda puerta sí podría colarse por ese hueco.
+
+#### 9. Redis sin alta disponibilidad
+
+Una instancia, sin réplica. Es aceptable porque ninguna de sus dos
+funciones puede dejar a nadie fuera de un edificio: la votación degrada
+a memoria y los eventos esperan en la outbox hasta que vuelva.
 
 ---
 
@@ -626,6 +883,36 @@ lo sobrescribe.
 
 ---
 
+## Pruebas
+
+```bash
+node scripts/ci-local.mjs        # reproduce el CI completo en local
+node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
+```
+
+111 pruebas unitarias, todas sobre piezas que **deciden** algo:
+
+| Qué | Dónde | Pruebas |
+|---|---|---|
+| Política de acceso (rol · zona · horario) | `access-service/src/policy` | 31 |
+| Anti-passback | `access-service/src/presence` | 19 |
+| Votación multi-frame | `access-service/src/verification` | 12 |
+| Contrato del evento de acceso | `access-service/src/presence` | 9 |
+| Relay de la outbox | `access-service/src/outbox` | 8 |
+| Máquina de estados de turno | `shift-service/src/shifts` | 25 |
+| Parser del evento recibido | `shift-service/src/consumer` | 7 |
+
+No es casualidad que todas esas piezas sean **funciones puras o con
+dobles**: se diseñaron así precisamente para poder probarlas. Corren en
+segundos, sin base de datos y sin contenedores, que es lo que hace que
+se ejecuten de verdad en cada cambio.
+
+Lo que **no** tiene pruebas unitarias es el pipeline de reconocimiento y
+el enrolamiento, porque necesitan imágenes y modelos reales; la prueba
+de humo los cubre de extremo a extremo contra el stack levantado.
+
+---
+
 ## Decisiones de arquitectura
 
 Documentadas en [`docs/adr/`](docs/adr/):
@@ -638,3 +925,5 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0004 | Un schema y un rol por servicio |
 | 0005 | REST síncrono antes que mensajería |
 | 0006 | Autenticación de administradores en un servicio propio |
+| 0007 | Redis Streams para los eventos, y la presencia en el Access Service |
+| 0008 | Cada servicio es dueño de sus tipos; se retira el paquete de contratos |

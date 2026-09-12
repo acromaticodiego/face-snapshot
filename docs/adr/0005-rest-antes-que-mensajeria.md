@@ -1,6 +1,7 @@
 # ADR 0005 — REST síncrono antes que mensajería
 
-**Estado:** aceptada · 2026-09-07
+**Estado:** aceptada · 2026-09-07 · **parcialmente superada** por el
+[ADR 0007](0007-eventos-y-presencia.md) el 2026-09-12
 
 ## Contexto
 
@@ -44,3 +45,24 @@ llamadas por toda la base de código.
   procesamiento síncrono.
 - Cuando el Access Service necesite varias réplicas y las ventanas de
   votación tengan que compartirse (ahí entraría Redis).
+
+## Qué pasó después
+
+El 2026-09-12 se cumplieron tres de esas cuatro condiciones a la vez, al
+añadir el registro de jornada: la presencia tenía que salir del camino
+crítico, apareció un consumidor externo (el Shift Service) y las
+ventanas de votación pasaron a impedir el escalado.
+
+Se añadió **Redis**, y solo Redis. El razonamiento está en el
+[ADR 0007](0007-eventos-y-presencia.md).
+
+**Lo que sigue vigente de este ADR:** el flujo de reconocimiento
+—frame → identidad → veredicto— sigue siendo REST síncrono, porque el
+usuario sigue de pie esperando una respuesta y ahí no hay nada que
+desacoplar. Lo que se desacopló fue lo que ocurre *después* de abrir la
+puerta.
+
+Y la preparación que este ADR dejó hecha funcionó como se esperaba: al
+estar todas las llamadas entre servicios encapsuladas en un cliente por
+servicio, añadir el bus no obligó a rastrear peticiones por la base de
+código.

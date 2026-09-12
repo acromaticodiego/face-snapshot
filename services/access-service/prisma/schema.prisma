@@ -36,6 +36,10 @@ enum AccessReason {
   OUTSIDE_SCHEDULE
   ASSIGNMENT_EXPIRED
   ACCESS_POINT_DISABLED
+  /// Intento de entrar sin haber salido, en una zona con anti-passback
+  /// estricto. No es un fallo de permisos: es que el sistema ya te
+  /// considera dentro.
+  ANTIPASSBACK_VIOLATION
 
   @@schema("access_svc")
 }
@@ -47,6 +51,59 @@ enum PassageDirection {
   /// Un torniquete que sirve para ambos sentidos: la direccion la
   /// determina el estado de presencia de la persona.
   BOTH
+
+  @@schema("access_svc")
+}
+
+/// Que hacer cuando alguien intenta entrar sin haber salido.
+enum AntipassbackMode {
+  /// Se deniega el paso. Para zonas donde la doble presencia es un
+  /// fallo grave: un laboratorio, una camara acorazada.
+  HARD
+  /// Se concede, se corrige el estado y se anota la anomalia. Es el
+  /// valor por defecto porque un despliegue nuevo siempre arranca con
+  /// la presencia desincronizada -nadie ha "entrado" todavia- y el
+  /// modo estricto dejaria a toda la plantilla en la calle el primer
+  /// dia.
+  SOFT
+  /// Sin control. Para zonas con puertas sin lector de salida, donde
+  /// la presencia nunca podria mantenerse al dia.
+  OFF
+
+  @@schema("access_svc")
+}
+
+/// Efecto de una zona sobre la jornada laboral.
+///
+/// Viaja denormalizado en los eventos de acceso para que el Shift
+/// Service pueda interpretar un paso sin consultar a este servicio.
+enum ShiftEffect {
+  /// Zona productiva: el tiempo dentro computa como trabajado.
+  WORK
+  /// Zona de descanso -comedor, cafeteria-: no computa.
+  BREAK
+  /// Ni una cosa ni otra -pasillo, parking-: no altera el turno.
+  NEUTRAL
+
+  @@schema("access_svc")
+}
+
+/// Algo digno de mencion que ocurrio en un intento, al margen de si se
+/// concedio o no.
+///
+/// Se guarda aparte de `reason` porque responden a preguntas
+/// distintas: `reason` dice POR QUE se abrio o no la puerta, y
+/// `anomaly` dice QUE fue raro aunque se abriera. Sin esta separacion,
+/// una violacion de anti-passback en modo blando seria invisible en la
+/// auditoria, que es justo el dato que un operador necesita ver.
+enum AccessAnomaly {
+  /// Se entro sin haber salido (o al reves) y la zona estaba en modo
+  /// blando: se dejo pasar y se corrigio la presencia.
+  ANTIPASSBACK_SOFT
+  /// Segunda lectura del mismo rostro en la misma puerta dentro de la
+  /// ventana de gracia. Se concedio, pero NO se registro como un paso
+  /// nuevo: no lo es.
+  DUPLICATE_PASSAGE
 
   @@schema("access_svc")
 }
@@ -86,12 +143,19 @@ model Zone {
   description String? @db.VarChar(255)
   isActive    Boolean @default(true) @map("is_active")
 
+  /// Como se trata aqui el intento de entrar sin haber salido.
+  antipassbackMode AntipassbackMode @default(SOFT) @map("antipassback_mode")
+
+  /// Si el tiempo pasado en esta zona cuenta como jornada trabajada.
+  shiftEffect ShiftEffect @default(WORK) @map("shift_effect")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   site         Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
   accessPoints AccessPoint[]
   permissions  RolePermission[]
+  presences    Presence[]
 
   @@unique([siteId, name])
   @@index([siteId])
@@ -249,6 +313,9 @@ model AccessLog {
   confidence    Float        @db.Real
   reason        AccessReason
 
+  /// Lo raro que paso aunque se concediera. Nulo en el caso normal.
+  anomaly AccessAnomaly?
+
   /// Contexto fisico del intento. Sin clave foranea a proposito: si
   /// manana se elimina un punto de acceso, el asiento historico debe
   /// seguir diciendo por donde se intento entrar.
@@ -258,6 +325,12 @@ model AccessLog {
   zoneName      String? @map("zone_name") @db.VarChar(120)
   accessPointId String? @map("access_point_id") @db.Uuid
   accessPointName String? @map("access_point_name") @db.VarChar(120)
+
+  /// Sentido RESUELTO del paso, no el configurado en el punto.
+  ///
+  /// Un torniquete configurado como BOTH no dice nada util en un
+  /// asiento historico; lo que importa es si aquella persona entro o
+  /// salio, que se deduce de su presencia en ese momento.
   direction     PassageDirection?
 
   cameraId  String  @default("default") @map("camera_id") @db.VarChar(60)
@@ -276,6 +349,59 @@ model AccessLog {
   @@schema("access_svc")
 }
 
+/// Donde esta cada persona ahora mismo.
+///
+/// POR QUE LA PRESENCIA VIVE AQUI Y NO EN EL SHIFT SERVICE
+/// -------------------------------------------------------
+/// Porque gobierna una puerta. El anti-passback es una decision de
+/// acceso, y este servicio es la unica autoridad del sistema en esa
+/// decision; preguntarsela a otro servicio por HTTP metería latencia
+/// en el camino critico, crearia un ciclo -el Shift Service consume
+/// los eventos que produce este- y obligaria a elegir entre abrir la
+/// puerta a todo el mundo o a nadie cuando ese servicio no responda.
+///
+/// El estado que gobierna una puerta no puede ser eventualmente
+/// consistente. Por eso esta fila se escribe en la MISMA transaccion
+/// que el asiento de auditoria y el evento de salida.
+///
+/// Esto no duplica el dominio de turnos: aqui vive el hecho fisico
+/// -dentro o fuera de esta zona-, y en el Shift Service su
+/// interpretacion laboral -en turno, en descanso, horas acumuladas-,
+/// que si tolera consistencia eventual porque no abre nada.
+model Presence {
+  personId String @map("person_id") @db.Uuid
+
+  /// La presencia es POR ZONA, no por sede.
+  ///
+  /// Permite el caso real de zonas anidadas: alguien puede estar
+  /// dentro de "Oficinas" y ademas dentro de "Laboratorio", y el
+  /// anti-passback de cada una se evalua por separado.
+  zoneId String @map("zone_id") @db.Uuid
+
+  /// Desnormalizado para contar el aforo de una sede sin unir tablas
+  /// en la consulta mas frecuente del panel de operacion.
+  siteId String @map("site_id") @db.Uuid
+
+  inside Boolean @default(false)
+
+  lastDirection     PassageDirection @map("last_direction")
+  lastAccessPointId String?          @map("last_access_point_id") @db.Uuid
+
+  /// Momento del ultimo paso REGISTRADO. Una segunda lectura dentro de
+  /// la ventana de gracia no lo mueve: no es un paso nuevo.
+  lastPassageAt DateTime @map("last_passage_at") @db.Timestamptz(6)
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  zone Zone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@id([personId, zoneId])
+  @@index([zoneId, inside])
+  @@index([siteId, inside])
+  @@map("presence")
+  @@schema("access_svc")
+}
+
 model AccessSession {
   id         String    @id @default(uuid()) @db.Uuid
   personId   String    @map("person_id") @db.Uuid
@@ -287,5 +413,58 @@ model AccessSession {
   @@index([personId])
   @@index([expiresAt])
   @@map("access_sessions")
+  @@schema("access_svc")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Publicacion de eventos
+// ═══════════════════════════════════════════════════════════════════
+
+/// Eventos pendientes de publicar en el bus.
+///
+/// POR QUE UNA TABLA Y NO UN XADD DIRECTO
+/// --------------------------------------
+/// Porque escribir en PostgreSQL y publicar en Redis no se pueden
+/// hacer de forma atomica: son dos sistemas distintos. Si se publicara
+/// justo despues de confirmar la transaccion, un fallo del proceso
+/// entre ambas cosas perderia el evento sin dejar rastro.
+///
+/// Aqui importa mas que en otros dominios. Un evento de acceso perdido
+/// no es un dato de telemetria que se pueda estimar despues: son horas
+/// trabajadas que no se le computan a una persona.
+///
+/// Escribiendo el evento en la MISMA transaccion que el asiento de
+/// auditoria, o se guardan los dos o no se guarda ninguno. El relay lo
+/// publica despues, y si publica dos veces no pasa nada: el consumidor
+/// es idempotente por `eventId`.
+model OutboxEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Nombre del evento, p.ej. "AccessGranted".
+  type String @db.VarChar(80)
+
+  /// A quien se refiere. Sirve para investigar y para reprocesar los
+  /// eventos de una persona concreta sin leer la tabla entera.
+  aggregateId String @map("aggregate_id") @db.Uuid
+
+  payload Json
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// Nulo mientras esta pendiente. Es la unica columna que mira el
+  /// relay, y por eso el indice es parcial: la tabla crece con el
+  /// historico pero el indice solo con lo pendiente, que en operacion
+  /// normal son unas pocas filas.
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+
+  /// Intentos fallidos. Un evento que no consigue salir tras varios
+  /// intentos es una averia que alguien tiene que mirar, no algo que
+  /// deba reintentarse para siempre en silencio.
+  attempts  Int     @default(0)
+  lastError String? @map("last_error") @db.VarChar(500)
+
+  @@index([createdAt])
+  @@index([aggregateId])
+  @@map("outbox_events")
   @@schema("access_svc")
 }

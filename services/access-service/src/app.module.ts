@@ -8,17 +8,26 @@ import { FaceClient } from './face/face.client';
 import { HealthController } from './health/health.controller';
 import { AccessLogsController } from './logs/access-logs.controller';
 import { AccessLogsService } from './logs/access-logs.service';
+import { OutboxRelay } from './outbox/outbox.relay';
 import { PolicyController } from './policy/policy.controller';
 import { PolicyRepository } from './policy/policy.repository';
 import { PolicyService } from './policy/policy.service';
+import { PassageService } from './presence/passage.service';
+import { PresenceController } from './presence/presence.controller';
+import { PresenceService } from './presence/presence.service';
 import { PrismaService } from './prisma/prisma.service';
+import { RedisModule } from './redis/redis.module';
 import { VerificationController } from './verification/verification.controller';
 import { VerificationService } from './verification/verification.service';
-import { VoteWindowService } from './verification/vote-window.service';
+import {
+  inMemoryVoteWindowStoreProvider,
+  voteWindowStoreProvider,
+} from './verification/vote-window.providers';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env', '../../.env'] }),
+    RedisModule,
     ThrottlerModule.forRoot([
       {
         ttl: Number(process.env.THROTTLE_TTL_MS ?? 60_000),
@@ -46,15 +55,20 @@ import { VoteWindowService } from './verification/vote-window.service';
   controllers: [
     VerificationController,
     PolicyController,
+    PresenceController,
     AccessLogsController,
     HealthController,
   ],
   providers: [
     PrismaService,
     VerificationService,
-    VoteWindowService,
+    inMemoryVoteWindowStoreProvider,
+    voteWindowStoreProvider,
     PolicyService,
     PolicyRepository,
+    PresenceService,
+    PassageService,
+    OutboxRelay,
     AccessLogsService,
     FaceClient,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

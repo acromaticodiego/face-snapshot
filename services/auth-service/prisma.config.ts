@@ -1,4 +1,12 @@
-import 'dotenv/config';
+import { config as loadEnv } from 'dotenv';
+
+// El .env del propio servicio primero, y el de la raiz despues como
+// respaldo. dotenv no sobreescribe lo que ya esta definido, asi que el
+// local gana; sin la segunda linea, un clon recien hecho no puede
+// aplicar migraciones hasta crear a mano un .env por servicio que no
+// esta documentado en ninguna parte.
+loadEnv();
+loadEnv({ path: '../../.env' });
 import { defineConfig } from 'prisma/config';
 
 /**

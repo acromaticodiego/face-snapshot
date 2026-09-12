@@ -40,23 +40,54 @@ async function main() {
     },
   });
 
+  // `update` sí lleva valores en las zonas: los campos de
+  // anti-passback y de jornada se añadieron después, y una base de
+  // datos ya sembrada los tendría en su valor por defecto. El resto de
+  // upserts deja `update` vacío a propósito, para no pisar cambios que
+  // alguien haya hecho desde el panel.
   const offices = await prisma.zone.upsert({
     where: { siteId_name: { siteId: site.id, name: 'Oficinas' } },
-    update: {},
+    update: { antipassbackMode: 'SOFT', shiftEffect: 'WORK' },
     create: {
       siteId: site.id,
       name: 'Oficinas',
       description: 'Área general de trabajo',
+      // Blando: es la puerta de la calle y siempre habrá alguien que
+      // salga detrás de otro sin pasar la cara. Se corrige solo.
+      antipassbackMode: 'SOFT',
+      shiftEffect: 'WORK',
     },
   });
 
   const lab = await prisma.zone.upsert({
     where: { siteId_name: { siteId: site.id, name: 'Laboratorio' } },
-    update: {},
+    update: { antipassbackMode: 'HARD', shiftEffect: 'WORK' },
     create: {
       siteId: site.id,
       name: 'Laboratorio',
       description: 'Acceso restringido',
+      // Estricto: en una zona restringida, que dos personas consten
+      // dentro con la misma identidad es exactamente el incidente que
+      // hay que impedir, no anotar.
+      antipassbackMode: 'HARD',
+      shiftEffect: 'WORK',
+    },
+  });
+
+  const cafeteria = await prisma.zone.upsert({
+    where: { siteId_name: { siteId: site.id, name: 'Cafetería' } },
+    update: { antipassbackMode: 'OFF', shiftEffect: 'BREAK' },
+    create: {
+      siteId: site.id,
+      name: 'Cafetería',
+      description: 'Comedor y zona de descanso',
+      // Apagado: no tiene lector de salida, así que la presencia nunca
+      // podría mantenerse al día y el control solo daría falsos
+      // positivos.
+      antipassbackMode: 'OFF',
+      // El tiempo aquí no computa como jornada: es lo que convierte
+      // una entrada a la cafetería en un descanso y no en trabajo.
+      shiftEffect: 'BREAK',
     },
   });
 
@@ -69,6 +100,17 @@ async function main() {
       name: 'Entrada Principal',
       direction: 'BOTH',
       terminalKey: 'main-entrance',
+    },
+  });
+
+  await prisma.accessPoint.upsert({
+    where: { terminalKey: 'cafeteria-door' },
+    update: {},
+    create: {
+      zoneId: cafeteria.id,
+      name: 'Puerta Cafetería',
+      direction: 'BOTH',
+      terminalKey: 'cafeteria-door',
     },
   });
 
@@ -135,6 +177,11 @@ async function main() {
     // Seguridad: todo, siempre. Es su trabajo.
     { roleId: security.id, zoneId: offices.id, scheduleId: alwaysSchedule.id },
     { roleId: security.id, zoneId: lab.id, scheduleId: alwaysSchedule.id },
+    // Cafetería: abierta a todos en horario de oficina. Sin este
+    // permiso, nadie podría fichar un descanso.
+    { roleId: employee.id, zoneId: cafeteria.id, scheduleId: officeSchedule.id },
+    { roleId: security.id, zoneId: cafeteria.id, scheduleId: alwaysSchedule.id },
+    { roleId: contractor.id, zoneId: cafeteria.id, scheduleId: officeSchedule.id },
     // Contratista: solo oficinas, y solo en horario laboral.
     // Nótese que NO tiene acceso al laboratorio: es el ejemplo de que
     // reconocer a alguien no implica dejarle pasar a todas partes.
@@ -157,8 +204,11 @@ async function main() {
 
   console.log('Datos iniciales listos:');
   console.log(`  Sede            ${site.name} (${site.timezone})`);
-  console.log(`  Zonas           ${offices.name}, ${lab.name}`);
-  console.log('  Puntos          main-entrance, lab-door');
+  console.log(
+    `  Zonas           ${offices.name}, ${lab.name}, ${cafeteria.name}`,
+  );
+  console.log('  Puntos          main-entrance, lab-door, cafeteria-door');
+  console.log('  Anti-passback   Oficinas SOFT · Laboratorio HARD · Cafetería OFF');
   console.log('  Roles           Empleado, Seguridad, Contratista');
   console.log('  Horarios        Horario de oficina, 24/7');
   console.log('');
