@@ -14,6 +14,9 @@ import { PolicyRepository } from './policy/policy.repository';
 import { PolicyService } from './policy/policy.service';
 import { PassageService } from './presence/passage.service';
 import { PresenceController } from './presence/presence.controller';
+import { StatsController } from './stats/stats.controller';
+import { StatsRepository } from './stats/stats.repository';
+import { StatsService } from './stats/stats.service';
 import { PresenceService } from './presence/presence.service';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisModule } from './redis/redis.module';
@@ -56,6 +59,7 @@ import {
     VerificationController,
     PolicyController,
     PresenceController,
+    StatsController,
     AccessLogsController,
     HealthController,
   ],
@@ -68,6 +72,8 @@ import {
     PolicyRepository,
     PresenceService,
     PassageService,
+    StatsService,
+    StatsRepository,
     OutboxRelay,
     AccessLogsService,
     FaceClient,
