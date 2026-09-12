@@ -47,13 +47,13 @@ describe('buildAccessGrantedEvent', () => {
     // y no trabajo, sin preguntarle nada al Access Service. Sin este
     // campo volveríamos a tener la llamada de vuelta que este diseño
     // evita.
-    expect(buildAccessGrantedEvent(grant()).zoneShiftEffect).toBe('BREAK');
+    expect(buildAccessGrantedEvent(grant(), true).zoneShiftEffect).toBe('BREAK');
   });
 
   it('lleva los nombres además de los identificadores', () => {
     // Mismo criterio que la auditoría: el hecho debe seguir siendo
     // legible aunque mañana se renombre o se elimine la zona.
-    const event = buildAccessGrantedEvent(grant());
+    const event = buildAccessGrantedEvent(grant(), true);
 
     expect(event.siteName).toBe('Sede Principal');
     expect(event.zoneName).toBe('Cafetería');
@@ -61,7 +61,7 @@ describe('buildAccessGrantedEvent', () => {
   });
 
   it('registra el sentido resuelto del paso', () => {
-    expect(buildAccessGrantedEvent(grant({ direction: 'OUT' })).direction).toBe(
+    expect(buildAccessGrantedEvent(grant({ direction: 'OUT' }), true).direction).toBe(
       'OUT',
     );
   });
@@ -71,6 +71,7 @@ describe('buildAccessGrantedEvent', () => {
     // descuadrada y que ese paso puede no encajar con el anterior.
     const event = buildAccessGrantedEvent(
       grant({ anomaly: 'ANTIPASSBACK_SOFT' }),
+      true,
     );
 
     expect(event.anomaly).toBe('ANTIPASSBACK_SOFT');
@@ -80,22 +81,45 @@ describe('buildAccessGrantedEvent', () => {
     // Es la clave de idempotencia del consumidor. Si dos eventos la
     // compartieran, el segundo se descartaría como repetido y se
     // perdería un paso real.
-    const first = buildAccessGrantedEvent(grant());
-    const second = buildAccessGrantedEvent(grant());
+    const first = buildAccessGrantedEvent(grant(), true);
+    const second = buildAccessGrantedEvent(grant(), true);
 
     expect(first.eventId).not.toBe(second.eventId);
   });
 
   it('marca el instante del paso, no el de la publicación', () => {
-    const event = buildAccessGrantedEvent(grant());
+    const event = buildAccessGrantedEvent(grant(), true);
 
     expect(event.occurredAt).toBe('2026-09-12T12:30:00.000Z');
+  });
+
+  it('dice si la persona sigue dentro de la sede tras el paso', () => {
+    // Es lo que distingue "salio del laboratorio y sigue trabajando"
+    // de "se fue a casa". Solo el Access Service puede responderlo,
+    // porque solo el tiene la presencia.
+    expect(
+      buildAccessGrantedEvent(grant({ direction: 'OUT' }), true)
+        .stillInsideSite,
+    ).toBe(true);
+    expect(
+      buildAccessGrantedEvent(grant({ direction: 'OUT' }), false)
+        .stillInsideSite,
+    ).toBe(false);
+  });
+
+  it('lleva la zona horaria de la sede', () => {
+    // La jornada se imputa al dia local de la sede, no al del
+    // servidor: sin este campo, en Bogota todo lo fichado despues de
+    // las 19:00 caeria en el dia siguiente.
+    expect(buildAccessGrantedEvent(grant(), true).siteTimezone).toBe(
+      'America/Bogota',
+    );
   });
 
   it('sobrevive a una ida y vuelta por JSON', () => {
     // Viaja serializado por el bus: cualquier valor que no sea JSON
     // puro se perdería en el camino sin avisar.
-    const event = buildAccessGrantedEvent(grant());
+    const event = buildAccessGrantedEvent(grant(), true);
 
     expect(JSON.parse(JSON.stringify(event))).toEqual(event);
   });

@@ -28,6 +28,7 @@ jobs:
           - services/auth-service
           - services/face-service
           - services/access-service
+          - services/shift-service
 
     steps:
       - uses: actions/checkout@v4

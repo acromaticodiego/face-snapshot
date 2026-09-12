@@ -38,6 +38,15 @@ export interface AccessGrantedEvent {
 
   siteId: string;
   siteName: string;
+  /**
+   * Zona horaria IANA de la sede.
+   *
+   * La jornada se imputa al dia LOCAL de la sede: un turno de noche
+   * que empieza el lunes a las 22:00 es la jornada del lunes. Sin este
+   * campo, el consumidor tendria que preguntar la zona horaria de cada
+   * sede, que es justo la llamada de vuelta que este diseno evita.
+   */
+  siteTimezone: string;
   zoneId: string;
   zoneName: string;
   /** Si el tiempo en esta zona computa como jornada. */
@@ -46,6 +55,19 @@ export interface AccessGrantedEvent {
   accessPointName: string;
 
   direction: 'IN' | 'OUT';
+
+  /**
+   * Si, tras este paso, la persona sigue dentro de alguna zona de la
+   * sede.
+   *
+   * Salir de una zona no es lo mismo que salir del edificio: quien
+   * sale del laboratorio y sigue en las oficinas no esta de pausa,
+   * vuelve a estar en turno. Solo este servicio puede responderlo,
+   * porque solo el tiene la presencia, y lo calcula dentro de la misma
+   * transaccion en la que la actualiza.
+   */
+  stillInsideSite: boolean;
+
   /** Anomalía anotada en la auditoría, si la hubo. */
   anomaly: 'ANTIPASSBACK_SOFT' | null;
 }

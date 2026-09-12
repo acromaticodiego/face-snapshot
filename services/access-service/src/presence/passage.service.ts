@@ -124,11 +124,24 @@ export class PassageService {
           },
         });
 
+        // Cuenta las zonas de la sede en las que la persona sigue
+        // dentro DESPUES de aplicar este paso. Es lo que permite al
+        // Shift Service distinguir "salio del laboratorio" de "se fue
+        // a casa" sin preguntar de vuelta. Va dentro de la transaccion
+        // a proposito: leerlo fuera daria un numero de otro momento.
+        const insideZones = await tx.presence.count({
+          where: {
+            personId: grant.personId,
+            siteId: grant.point.siteId,
+            inside: true,
+          },
+        });
+
         // El evento sale por la outbox y no por un XADD directo: si se
         // publicara justo despues de confirmar la transaccion, un
         // fallo del proceso entre ambas cosas perderia el paso, y un
         // paso perdido son horas que no se le computan a alguien.
-        const event = buildAccessGrantedEvent(grant);
+        const event = buildAccessGrantedEvent(grant, insideZones > 0);
         await tx.outboxEvent.create({
           data: {
             id: event.eventId,
@@ -163,6 +176,7 @@ export class PassageService {
  */
 export function buildAccessGrantedEvent(
   grant: GrantedPassage,
+  stillInsideSite: boolean,
 ): AccessGrantedEvent {
   return {
     eventId: randomUUID(),
@@ -172,12 +186,14 @@ export function buildAccessGrantedEvent(
     personName: grant.personName,
     siteId: grant.point.siteId,
     siteName: grant.point.siteName,
+    siteTimezone: grant.point.timezone,
     zoneId: grant.point.zoneId,
     zoneName: grant.point.zoneName,
     zoneShiftEffect: grant.point.shiftEffect,
     accessPointId: grant.point.accessPointId,
     accessPointName: grant.point.accessPointName,
     direction: grant.direction,
+    stillInsideSite,
     // `DUPLICATE_PASSAGE` no llega hasta aquí: esa lectura no genera
     // evento. La única anomalía que un consumidor puede ver es la del
     // anti-passback blando, y le importa porque significa que la

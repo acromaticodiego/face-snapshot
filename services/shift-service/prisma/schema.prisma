@@ -1,0 +1,166 @@
+// ═══════════════════════════════════════════════════════════════════
+//  Shift Service — modelo de datos
+//
+//  Dueño de la jornada laboral: en qué estado está cada persona, qué
+//  ha hecho hoy y cuánto tiempo lleva trabajado.
+//
+//  ESTO ES UNA PROYECCION, NO LA VERDAD
+//  ────────────────────────────────────
+//  Todo lo que hay aquí se deriva de los eventos que publica el Access
+//  Service. Este servicio no decide nada que abra una puerta: si se
+//  quedase atrás, o incluso si hubiera que reconstruirlo entero
+//  reprocesando los eventos, nadie se quedaría fuera del edificio.
+//
+//  Esa es exactamente la razón por la que la presencia física vive en
+//  access_svc y no aquí. Lo que gobierna una puerta necesita
+//  consistencia fuerte; una hoja de horas tolera ir unos segundos por
+//  detrás.
+//
+//  Sin claves foráneas hacia personas, zonas o sedes: pertenecen a
+//  otros servicios y a otros schemas. Los nombres se guardan
+//  desnormalizados, igual que en la auditoría de accesos.
+// ═══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["shift_svc"]
+}
+
+/// En qué situación está una persona respecto de su jornada.
+enum ShiftState {
+  /// Sin jornada abierta.
+  FUERA
+
+  /// Dentro y trabajando. El tiempo computa.
+  EN_TURNO
+
+  /// En una zona marcada como de descanso -comedor, cafeteria-.
+  /// Sigue en la sede; el tiempo NO computa como trabajado.
+  EN_DESCANSO
+
+  /// Salio de la sede con la jornada abierta.
+  ///
+  /// Es un estado PROVISIONAL, y ahi esta lo interesante: cuando
+  /// alguien sale, el sistema no puede saber si volvera en diez
+  /// minutos o si se ha ido a casa. En vez de adivinar, anota una
+  /// pausa y deja que el tiempo lo resuelva: si vuelve, la pausa se
+  /// cierra y la jornada continua; si no vuelve, el reconciliador la
+  /// convierte en el cierre de la jornada, con hora de salida la del
+  /// inicio de la pausa y no la del momento en que se dio cuenta.
+  EN_PAUSA
+
+  @@schema("shift_svc")
+}
+
+/// Quien cerro una jornada.
+enum ShiftClosedBy {
+  /// Se cerro sola porque la persona salio y no volvio.
+  TIMEOUT
+  /// Llevaba abierta mas de lo que dura ningun turno: alguien se fue
+  /// sin fichar. Se cierra y se marca, para que no aparezca una
+  /// jornada de tres dias en la hoja de horas.
+  STALE
+
+  @@schema("shift_svc")
+}
+
+/// Una jornada de trabajo.
+///
+/// Se abre con la primera entrada del dia y se cierra cuando la
+/// persona se va. Nunca hay dos abiertas para la misma persona: es la
+/// invariante que sostiene todo lo demas, y esta impuesta por un
+/// indice unico parcial, no por el codigo.
+model WorkDay {
+  id String @id @default(uuid()) @db.Uuid
+
+  personId   String @map("person_id") @db.Uuid
+  personName String @map("person_name") @db.VarChar(120)
+
+  siteId   String @map("site_id") @db.Uuid
+  siteName String @map("site_name") @db.VarChar(120)
+
+  /// Dia al que se imputa la jornada, en la hora LOCAL de la sede.
+  ///
+  /// Se fija al abrirla y no se recalcula: un turno de noche que
+  /// empieza el lunes a las 22:00 y acaba el martes a las 06:00 es la
+  /// jornada del LUNES, y contarla en el martes descuadraria las dos.
+  businessDate DateTime @map("business_date") @db.Date
+
+  state ShiftState
+
+  /// Desde cuando esta en el estado actual. Es el ancla con la que se
+  /// calcula cuanto tiempo sumar al cambiar de estado.
+  stateSince DateTime @map("state_since") @db.Timestamptz(6)
+
+  startedAt DateTime  @map("started_at") @db.Timestamptz(6)
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(6)
+  closedBy  ShiftClosedBy? @map("closed_by")
+
+  /// Tiempo acumulado, en SEGUNDOS.
+  ///
+  /// En segundos y no en minutos porque se suma un tramo en cada
+  /// transicion: redondeando a minutos cada vez, una jornada con
+  /// varias idas y venidas a la cafeteria perderia varios minutos por
+  /// el camino, y esas son horas que se le pagan a alguien.
+  workedSeconds Int @default(0) @map("worked_seconds")
+  breakSeconds  Int @default(0) @map("break_seconds")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  entries TimelineEntry[]
+
+  @@index([personId, businessDate])
+  @@index([siteId, businessDate])
+  @@map("work_days")
+  @@schema("shift_svc")
+}
+
+/// Un momento concreto de la jornada, anclado en el tiempo.
+///
+/// La linea de tiempo se guarda como hechos y no se recalcula: si
+/// manana cambian las reglas de que cuenta como descanso, lo que paso
+/// ayer seguira estando descrito tal como se interpreto entonces.
+model TimelineEntry {
+  id String @id @default(uuid()) @db.Uuid
+
+  workDayId String? @map("work_day_id") @db.Uuid
+
+  /// Evento de acceso que provoco esta entrada.
+  ///
+  /// UNICO, y es la pieza que hace idempotente al consumidor. La
+  /// entrega por el bus es "al menos una vez": un evento puede llegar
+  /// repetido tras un reinicio o un reintento, y sin esta restriccion
+  /// una persona acabaria con la entrada duplicada y las horas
+  /// contadas dos veces. Con ella, reprocesar es inofensivo.
+  ///
+  /// Es nulo en las entradas que no nacen de un acceso -el cierre por
+  /// tiempo, por ejemplo-, que las genera este servicio.
+  sourceEventId String? @unique @map("source_event_id") @db.Uuid
+
+  personId String @map("person_id") @db.Uuid
+
+  at DateTime @db.Timestamptz(6)
+
+  fromState ShiftState @map("from_state")
+  toState   ShiftState @map("to_state")
+
+  /// Contexto del paso. Nulo cuando la entrada no viene de una puerta.
+  direction       String? @db.VarChar(3)
+  zoneId          String? @map("zone_id") @db.Uuid
+  zoneName        String? @map("zone_name") @db.VarChar(120)
+  accessPointName String? @map("access_point_name") @db.VarChar(120)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workDay WorkDay? @relation(fields: [workDayId], references: [id], onDelete: Cascade)
+
+  @@index([personId, at])
+  @@index([workDayId])
+  @@map("timeline_entries")
+  @@schema("shift_svc")
+}
