@@ -154,6 +154,17 @@ export class AccessServiceClient extends BaseServiceClient {
     );
   }
 
+  async listPresence(query: Record<string, string | undefined>) {
+    try {
+      const { data } = await this.http.get('/api/v1/presence', {
+        params: query,
+      });
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo obtener la presencia');
+    }
+  }
+
   async verifyFrame(params: {
     image: Buffer;
     filename: string;
@@ -242,6 +253,61 @@ export class AccessServiceClient extends BaseServiceClient {
       return data;
     } catch (e) {
       this.fail(e, 'No se pudo obtener el historial de accesos');
+    }
+  }
+
+  async health() {
+    const { data } = await this.http.get('/api/v1/health', { timeout: 3000 });
+    return data;
+  }
+}
+
+/**
+ * Cliente del Shift Service.
+ *
+ * Solo lecturas: la jornada se escribe consumiendo eventos, nunca por
+ * HTTP. Que este cliente no tenga un solo metodo de escritura es la
+ * forma mas clara de decir que la proyeccion no se puede tocar a mano.
+ */
+@Injectable()
+export class ShiftServiceClient extends BaseServiceClient {
+  constructor(config: ConfigService) {
+    super(
+      ShiftServiceClient.name,
+      config.get<string>('SHIFT_SERVICE_URL', 'http://localhost:3004'),
+      8_000,
+    );
+  }
+
+  async currentShift(personId: string) {
+    try {
+      const { data } = await this.http.get(
+        `/api/v1/shifts/${personId}/current`,
+      );
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo obtener el estado de turno');
+    }
+  }
+
+  async timeline(personId: string, date?: string) {
+    try {
+      const { data } = await this.http.get(
+        `/api/v1/shifts/${personId}/timeline`,
+        { params: date ? { date } : {} },
+      );
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo obtener la linea de tiempo');
+    }
+  }
+
+  async openShifts(query: Record<string, string | undefined>) {
+    try {
+      const { data } = await this.http.get('/api/v1/shifts', { params: query });
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudieron obtener las jornadas abiertas');
     }
   }
 

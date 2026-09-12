@@ -13,6 +13,7 @@ import { PolicyController } from './policy/policy.controller';
 import { PolicyRepository } from './policy/policy.repository';
 import { PolicyService } from './policy/policy.service';
 import { PassageService } from './presence/passage.service';
+import { PresenceController } from './presence/presence.controller';
 import { PresenceService } from './presence/presence.service';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisModule } from './redis/redis.module';
@@ -54,6 +55,7 @@ import {
   controllers: [
     VerificationController,
     PolicyController,
+    PresenceController,
     AccessLogsController,
     HealthController,
   ],

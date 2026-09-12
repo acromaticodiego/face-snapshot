@@ -8,13 +8,17 @@ import { AdminAccessPolicyController } from './admin/access-policy.controller';
 import { AdminAuthController } from './admin/admin-auth.controller';
 import { AdminAuthGuard } from './admin/admin-auth.guard';
 import { AdminLogsController } from './admin/logs.controller';
+import { AdminOperationsController } from './admin/operations.controller';
 import { AdminPersonsController } from './admin/persons.controller';
+import { AccessSessionGuard } from './auth/access-session.guard';
 import { AuthController } from './auth/auth.controller';
+import { MeController } from './auth/me.controller';
 import { HealthController } from './health/health.controller';
 import {
   AccessServiceClient,
   AuthServiceClient,
   FaceServiceClient,
+  ShiftServiceClient,
 } from './proxy/service-clients';
 
 @Module({
@@ -35,9 +39,11 @@ import {
   ],
   controllers: [
     AuthController,
+    MeController,
     AdminAuthController,
     AdminPersonsController,
     AdminAccessPolicyController,
+    AdminOperationsController,
     AdminLogsController,
     HealthController,
   ],
@@ -45,7 +51,9 @@ import {
     FaceServiceClient,
     AccessServiceClient,
     AuthServiceClient,
+    ShiftServiceClient,
     AdminAuthGuard,
+    AccessSessionGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
