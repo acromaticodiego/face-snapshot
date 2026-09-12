@@ -130,12 +130,23 @@ export class AccessEventsConsumer implements OnModuleInit, OnModuleDestroy {
         await this.claimStale();
         await this.readBatch();
       } catch (error) {
-        // Un fallo aquí es casi siempre Redis caído. Se espera antes de
-        // reintentar para no convertir la caída en un bucle cerrado que
-        // consuma una CPU entera.
-        this.logger.warn(
-          `Consumo interrumpido, reintentando: ${(error as Error).message}`,
-        );
+        const message = (error as Error).message;
+
+        // NOGROUP: el stream o el grupo han dejado de existir. Pasa si
+        // alguien vacía Redis o borra el stream a mano. Sin volver a
+        // crear el grupo, este bucle giraría en falso para siempre y
+        // solo un reinicio lo arreglaría: el consumidor tiene que
+        // recuperarse solo.
+        if (message.includes('NOGROUP')) {
+          this.logger.warn('El grupo de consumidores desapareció; se recrea');
+          await this.ensureGroup().catch(() => undefined);
+          continue;
+        }
+
+        // Cualquier otro fallo es casi siempre Redis caído. Se espera
+        // antes de reintentar para no convertir la caída en un bucle
+        // cerrado que consuma una CPU entera.
+        this.logger.warn(`Consumo interrumpido, reintentando: ${message}`);
         await new Promise((resolve) => setTimeout(resolve, this.blockMs));
       }
     }

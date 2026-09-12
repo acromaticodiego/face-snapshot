@@ -442,6 +442,10 @@ docker compose exec access-service npx prisma db seed
 
 Cada servicio en su propia terminal.
 
+> Las migraciones leen la conexión del `.env` de la **raíz** del
+> proyecto. Un `.env` dentro del directorio del servicio, si existe,
+> tiene prioridad; no hace falta crearlo.
+
 **1. PostgreSQL y Redis**
 
 ```bash
