@@ -66,6 +66,132 @@ export interface VerifyFrameResponse {
   passage?: Passage;
 }
 
+// ── Jornada laboral ───────────────────────────────────────────────
+
+export type ShiftState = 'FUERA' | 'EN_TURNO' | 'EN_DESCANSO' | 'EN_PAUSA';
+
+export interface ShiftSummary {
+  state: ShiftState;
+  /** Desde cuándo está en ese estado. */
+  since: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** Incluye el tramo en curso, no solo lo ya consolidado. */
+  workedSeconds: number;
+  breakSeconds: number;
+  siteName: string | null;
+}
+
+export interface TimelineEntry {
+  at: string;
+  fromState: ShiftState;
+  toState: ShiftState;
+  direction: 'IN' | 'OUT' | null;
+  zoneName: string | null;
+  accessPointName: string | null;
+}
+
+export interface WorkDay {
+  id: string;
+  businessDate: string;
+  state: ShiftState;
+  startedAt: string;
+  endedAt: string | null;
+  /** Nulo si la cerró un paso real; TIMEOUT o STALE si la cerró el sistema. */
+  closedBy: 'TIMEOUT' | 'STALE' | null;
+  workedSeconds: number;
+  breakSeconds: number;
+  siteName: string;
+  entries: TimelineEntry[];
+}
+
+// ── Panel de operación ────────────────────────────────────────────
+
+export interface PresenceRow {
+  personId: string;
+  zoneId: string;
+  siteId: string;
+  inside: boolean;
+  lastDirection: string;
+  lastPassageAt: string;
+}
+
+export interface PresenceResponse {
+  items: PresenceRow[];
+  occupancyByZone: Record<string, number>;
+  /** Personas distintas: quien está en el laboratorio consta también
+   *  dentro de las oficinas, así que sumar zonas inflaría el aforo. */
+  totalPeople: number;
+}
+
+export interface OpenShiftsResponse {
+  items: Array<{
+    personId: string;
+    personName: string;
+    state: ShiftState;
+    since: string;
+    startedAt: string;
+    siteName: string;
+  }>;
+  countsByState: Partial<Record<ShiftState, number>>;
+}
+
+export interface DenialsResponse {
+  since: string;
+  granted: number;
+  denied: number;
+  anomalies: number;
+  byReason: Array<{ reason: AccessReason; count: number }>;
+}
+
+export interface SimilarityBucket {
+  from: number;
+  to: number;
+  count: number;
+}
+
+export interface SimilarityResponse {
+  since: string;
+  threshold: number;
+  recognized: SimilarityBucket[];
+  unrecognized: SimilarityBucket[];
+  analysis: {
+    threshold: number;
+    verdict: 'HOLGADO' | 'AJUSTADO' | 'SOLAPADO' | 'SIN_DATOS';
+    separation: number | null;
+    marginBelow: number | null;
+    marginAbove: number | null;
+    recognized: { samples: number; min: number | null; max: number | null };
+    unrecognized: { samples: number; min: number | null; max: number | null };
+    caveat: string;
+  };
+}
+
+export interface HourlyResponse {
+  since: string;
+  timezone: string;
+  cells: Array<{
+    weekday: number;
+    hour: number;
+    total: number;
+    granted: number;
+  }>;
+}
+
+export interface AccessLogRow {
+  id: string;
+  personId: string | null;
+  personName: string | null;
+  authenticated: boolean;
+  confidence: number;
+  reason: AccessReason;
+  anomaly: 'ANTIPASSBACK_SOFT' | 'DUPLICATE_PASSAGE' | null;
+  zoneName: string | null;
+  accessPointName: string | null;
+  direction: 'IN' | 'OUT' | 'BOTH' | null;
+  createdAt: string;
+}
+
 export interface Person {
   id: string;
   fullName: string;
@@ -107,13 +233,41 @@ async function parseError(response: Response): Promise<never> {
   throw new ApiError(message, response.status, code);
 }
 
+/**
+ * Token de sesión facial, el que emite el Access Service al reconocer.
+ *
+ * Es DISTINTO del de administrador y no son intercambiables: el guard
+ * del Gateway comprueba el tipo en los dos sentidos. Un token de
+ * administración no sirve en /me/* porque esas rutas responden sobre el
+ * sujeto del token, y una cuenta de administración no es una persona
+ * reconocible por la cámara.
+ */
+function getSessionToken(): string | null {
+  try {
+    return sessionStorage.getItem('accessToken');
+  } catch {
+    // Modo privado o almacenamiento bloqueado por el navegador.
+    return null;
+  }
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  // Las rutas de administracion viajan siempre con el token; las de
-  // autenticacion facial son publicas por diseno (el usuario que se
-  // identifica ante la camara todavia no tiene ninguna sesion).
+  // Las rutas de administracion viajan con el token de administrador;
+  // las de /me, con el de la sesion facial. Las de autenticacion son
+  // publicas por diseno: quien se identifica ante la camara todavia no
+  // tiene ninguna sesion.
   const needsAuth = path.startsWith('/admin') && !path.startsWith('/admin/auth/login');
+  const needsSession = path.startsWith('/me');
+
   if (needsAuth) {
     const token = adminSession.getToken();
+    if (token) {
+      init.headers = { ...init.headers, Authorization: `Bearer ${token}` };
+    }
+  }
+
+  if (needsSession) {
+    const token = getSessionToken();
     if (token) {
       init.headers = { ...init.headers, Authorization: `Bearer ${token}` };
     }
@@ -225,6 +379,47 @@ export const api = {
     role: string;
   }> {
     return request('/admin/auth/me');
+  },
+
+  // ── Sobre uno mismo ───────────────────────────────────────────
+  //
+  // El identificador NO viaja en la peticion: lo lee el Gateway del
+  // token. Si se aceptara como parametro, cualquiera con una sesion
+  // valida podria leer la jornada de sus companeros cambiando un
+  // numero en la barra del navegador.
+
+  async myShift(): Promise<ShiftSummary> {
+    return request('/me/shift');
+  },
+
+  async myTimeline(): Promise<{ items: WorkDay[] }> {
+    return request('/me/timeline');
+  },
+
+  // ── Panel de operacion (exige token de administrador) ─────────
+
+  async presence(): Promise<PresenceResponse> {
+    return request('/admin/presence');
+  },
+
+  async openShifts(): Promise<OpenShiftsResponse> {
+    return request('/admin/shifts');
+  },
+
+  async accessLogs(take = 20): Promise<{ items: AccessLogRow[]; total: number }> {
+    return request(`/admin/access-logs?take=${take}`);
+  },
+
+  async denialStats(days = 7): Promise<DenialsResponse> {
+    return request(`/admin/stats/denials?days=${days}`);
+  },
+
+  async similarityStats(days = 30): Promise<SimilarityResponse> {
+    return request(`/admin/stats/similarity?days=${days}`);
+  },
+
+  async hourlyStats(days = 28): Promise<HourlyResponse> {
+    return request(`/admin/stats/hourly?days=${days}`);
   },
 
   async health(): Promise<{ status: string }> {

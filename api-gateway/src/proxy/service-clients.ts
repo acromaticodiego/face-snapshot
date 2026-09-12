@@ -154,6 +154,20 @@ export class AccessServiceClient extends BaseServiceClient {
     );
   }
 
+  async stats(
+    kind: 'denials' | 'similarity' | 'hourly',
+    query: Record<string, string | undefined>,
+  ) {
+    try {
+      const { data } = await this.http.get(`/api/v1/stats/${kind}`, {
+        params: query,
+      });
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudieron obtener las estadisticas');
+    }
+  }
+
   async listPresence(query: Record<string, string | undefined>) {
     try {
       const { data } = await this.http.get('/api/v1/presence', {
