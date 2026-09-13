@@ -81,6 +81,14 @@ export interface ShiftSummary {
   /** Incluye el tramo en curso, no solo lo ya consolidado. */
   workedSeconds: number;
   breakSeconds: number;
+  /**
+   * Sede de la jornada abierta. Nulo cuando no hay ninguna.
+   *
+   * Es de donde sale el `siteId` de un parte de relevo: el terminal
+   * conoce su puerta, no su sede, así que sin este campo el frontend
+   * no tiene forma de decir a qué sede corresponde el parte.
+   */
+  siteId: string | null;
   siteName: string | null;
 }
 
@@ -236,6 +244,134 @@ export interface Person {
   roles: PersonRole[] | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Bitácora de relevo de turno ───────────────────────────────────
+
+export type IncidentCategory =
+  | 'ACCESO'
+  | 'ALARMA'
+  | 'MANTENIMIENTO'
+  | 'SEGURIDAD'
+  | 'OTRO';
+
+export type IncidentSeverity = 'BAJA' | 'MEDIA' | 'ALTA';
+
+/**
+ * De dónde salió una incidencia.
+ *
+ * Lo declara el cliente porque es el único que lo sabe: el servidor no
+ * ve la propuesta original ni lo que la persona tocó antes de firmar.
+ * Sirve para poder responder, con datos, si el modelo aporta algo.
+ */
+export type IncidentOrigin =
+  | 'PROPUESTA_ACEPTADA'
+  | 'PROPUESTA_EDITADA'
+  | 'ANADIDA_POR_PERSONA';
+
+/** Una incidencia tal y como la propone el Voice Service. */
+export interface ProposedIncident {
+  titulo: string;
+  categoria: IncidentCategory;
+  gravedad: IncidentSeverity;
+  horaMencionada?: string | null;
+  requiereSeguimiento: boolean;
+  citaLiteral: string;
+  /**
+   * Si esa cita aparece de verdad en la transcripción.
+   *
+   * Lo comprueba el Voice Service comparando contra el texto; no lo
+   * dice el modelo. Una incidencia con `false` no se oculta: se marca,
+   * para que quien revisa sepa cuál no está respaldada por lo que dijo.
+   */
+  citaVerificada: boolean;
+}
+
+export interface LogbookDraft {
+  transcripcion: {
+    texto: string;
+    confianza: number;
+    duracionSegundos: number;
+    modelo: string;
+  };
+  estructura: {
+    resumen: string;
+    incidencias: ProposedIncident[];
+  } | null;
+  /** Por qué no hay estructura, cuando no la hay. */
+  estructuraOmitidaPor: string | null;
+  /**
+   * Qué modelo produjo la estructura, con su versión concreta.
+   *
+   * Se guarda en el parte firmado. Apuntar «gemini» a secas no serviría
+   * para lo que este dato existe: poder encontrar qué partes pasaron
+   * por una versión si se descubre que agrupaba mal.
+   */
+  modeloEstructurador: string | null;
+  processingTimeMs: number;
+  transcribeTimeMs: number;
+  structureTimeMs: number | null;
+}
+
+/** Lo que se envía al firmar. */
+export interface HandoverPayload {
+  siteId: string;
+  coversFrom: string;
+  coversTo: string;
+  source: 'DICTADO' | 'ESCRITO';
+  transcript?: string;
+  summary: string;
+  transcriptionModel?: string;
+  structuringModel?: string;
+  incidents: Array<{
+    title: string;
+    category: IncidentCategory;
+    severity: IncidentSeverity;
+    mentionedTime?: string;
+    requiresFollowUp: boolean;
+    origin: IncidentOrigin;
+    quote?: string;
+    quoteVerified: boolean;
+  }>;
+}
+
+export interface HandoverEntry {
+  id: string;
+  personName: string;
+  siteName: string | null;
+  businessDate: string;
+  coversFrom: string;
+  coversTo: string;
+  source: 'DICTADO' | 'ESCRITO';
+  summary: string;
+  incidents: Array<{
+    id: string;
+    title: string;
+    category: IncidentCategory;
+    severity: IncidentSeverity;
+    mentionedTime: string | null;
+    requiresFollowUp: boolean;
+    origin: IncidentOrigin;
+    quote: string | null;
+    quoteVerified: boolean;
+  }>;
+}
+
+export interface PendingIncident {
+  id: string;
+  title: string;
+  category: IncidentCategory;
+  severity: IncidentSeverity;
+  mentionedTime: string | null;
+  quote: string | null;
+  quoteVerified: boolean;
+  entry: {
+    id: string;
+    personName: string;
+    siteName: string | null;
+    businessDate: string;
+    coversTo: string;
+  };
 }
 
 export class ApiError extends Error {
@@ -472,6 +608,48 @@ export const api = {
 
   async endBreak(): Promise<ShiftSummary> {
     return request('/me/shift/resume', { method: 'POST' });
+  },
+
+  // ── Bitácora de relevo de turno ───────────────────────────────
+
+  /**
+   * Convierte un dictado en un borrador estructurado.
+   *
+   * NO guarda nada. Lo que vuelve es una propuesta que hay que revisar
+   * y firmar aparte. Si el estructurador no responde, llega solo la
+   * transcripción y `estructuraOmitidaPor` explica por qué: el parte se
+   * puede firmar igual.
+   */
+  async logbookDraft(audio: Blob): Promise<LogbookDraft> {
+    const form = new FormData();
+    // El nombre importa poco, el tipo sí: el Gateway comprueba la
+    // cabecera del archivo antes de mandarlo a un tercero.
+    form.append('file', audio, 'parte.webm');
+    return request('/me/logbook/draft', { method: 'POST', body: form });
+  },
+
+  /** Firma un parte. Lo que se firma aquí es INMUTABLE. */
+  async signHandover(payload: HandoverPayload): Promise<HandoverEntry> {
+    return request('/me/logbook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async myHandovers(take = 5): Promise<{ items: HandoverEntry[]; total: number }> {
+    return request(`/me/logbook?take=${take}`);
+  },
+
+  /**
+   * Lo que quedó sin cerrar, para quien entra al turno.
+   *
+   * No filtra por persona a propósito: lo pendiente lo dejó otro.
+   */
+  async pendingIncidents(
+    days = 7,
+  ): Promise<{ items: PendingIncident[]; total: number; sinceDays: number }> {
+    return request(`/me/logbook/pending?days=${days}`);
   },
 
   // ── Panel de operacion (exige token de administrador) ─────────

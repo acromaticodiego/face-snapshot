@@ -7,6 +7,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AdminAccessPolicyController } from './admin/access-policy.controller';
 import { AdminAuthController } from './admin/admin-auth.controller';
 import { AdminAuthGuard } from './admin/admin-auth.guard';
+import { AdminHandoversController } from './admin/handovers.controller';
 import { AdminLogsController } from './admin/logs.controller';
 import { AdminOperationsController } from './admin/operations.controller';
 import { AdminPersonsController } from './admin/persons.controller';
@@ -18,7 +19,9 @@ import {
   AccessServiceClient,
   AuthServiceClient,
   FaceServiceClient,
+  LogbookServiceClient,
   ShiftServiceClient,
+  VoiceServiceClient,
 } from './proxy/service-clients';
 
 @Module({
@@ -45,6 +48,7 @@ import {
     AdminAccessPolicyController,
     AdminOperationsController,
     AdminLogsController,
+    AdminHandoversController,
     HealthController,
   ],
   providers: [
@@ -52,6 +56,8 @@ import {
     AccessServiceClient,
     AuthServiceClient,
     ShiftServiceClient,
+    VoiceServiceClient,
+    LogbookServiceClient,
     AdminAuthGuard,
     AccessSessionGuard,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

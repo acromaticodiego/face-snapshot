@@ -55,8 +55,25 @@ abstract class BaseServiceClient {
     mimetype: string,
     fields: Record<string, string | undefined> = {},
   ): FormData {
+    return this.buildFileForm(image, filename, mimetype, fields);
+  }
+
+  /**
+   * Un multipart con un solo archivo.
+   *
+   * Generaliza `buildImageForm`, que era lo mismo con otro nombre, en
+   * cuanto apareció un servicio que manda audio. Se conserva el nombre
+   * antiguo porque lo usan varios clientes y renombrarlos no arregla
+   * nada.
+   */
+  protected buildFileForm(
+    file: Buffer,
+    filename: string,
+    mimetype: string,
+    fields: Record<string, string | undefined> = {},
+  ): FormData {
     const form = new FormData();
-    form.append('file', image, { filename, contentType: mimetype });
+    form.append('file', file, { filename, contentType: mimetype });
     for (const [key, value] of Object.entries(fields)) {
       if (value !== undefined) form.append(key, value);
     }
@@ -412,6 +429,124 @@ export class AuthServiceClient extends BaseServiceClient {
       // ("Credenciales invalidas"): se propaga tal cual para no filtrar
       // si el correo existe.
       this.fail(e, 'No se pudo iniciar sesion');
+    }
+  }
+
+  async health() {
+    const { data } = await this.http.get('/api/v1/health', { timeout: 3000 });
+    return data;
+  }
+}
+
+
+/**
+ * Cliente del Voice Service.
+ *
+ * Solo produce BORRADORES. No guarda nada y no es la bitácora: lo que
+ * devuelve pasa por delante de una persona antes de existir como
+ * registro.
+ *
+ * El plazo es largo a propósito —dos llamadas a terceros encadenadas,
+ * transcribir y estructurar, sobre un audio que puede durar minutos—.
+ * Es el único cliente de este Gateway que espera tanto, y se puede
+ * permitir porque no hay ninguna puerta esperando la respuesta.
+ */
+@Injectable()
+export class VoiceServiceClient extends BaseServiceClient {
+  constructor(config: ConfigService) {
+    super(
+      VoiceServiceClient.name,
+      config.get<string>('VOICE_SERVICE_URL', 'http://localhost:8001'),
+      Number(config.get<string>('VOICE_TIMEOUT_MS', '180000')),
+    );
+  }
+
+  async logbookDraft(audio: Buffer, filename: string, mimetype: string) {
+    const form = this.buildFileForm(audio, filename, mimetype);
+    try {
+      const { data } = await this.http.post('/api/v1/logbook/draft', form, {
+        headers: form.getHeaders(),
+      });
+      return data;
+    } catch (e) {
+      // El 503 del Voice Service viaja con su código
+      // (TRANSCRIPTION_UNAVAILABLE) para que la interfaz pueda ofrecer
+      // escribir el parte a mano en lugar de un error genérico.
+      this.fail(e, 'No se pudo preparar el borrador del parte');
+    }
+  }
+
+  async health() {
+    const { data } = await this.http.get('/api/v1/health', { timeout: 3000 });
+    return data;
+  }
+}
+
+/**
+ * Cliente del Logbook Service.
+ *
+ * QUIEN FIRMA VIAJA EN CABECERA, NO EN EL CUERPO
+ * ──────────────────────────────────────────────
+ * `X-Person-Id` y `X-Person-Name` los pone este Gateway a partir del
+ * token de sesión facial. Nunca salen del cuerpo de la petición: un
+ * parte firmado a nombre de otro vaciaría de sentido el registro
+ * entero.
+ */
+@Injectable()
+export class LogbookServiceClient extends BaseServiceClient {
+  constructor(config: ConfigService) {
+    super(
+      LogbookServiceClient.name,
+      config.get<string>('LOGBOOK_SERVICE_URL', 'http://localhost:3005'),
+      8_000,
+    );
+  }
+
+  async sign(
+    author: { personId: string; personName: string },
+    body: unknown,
+  ) {
+    try {
+      const { data } = await this.http.post('/api/v1/handovers', body, {
+        headers: {
+          'x-person-id': author.personId,
+          'x-person-name': author.personName,
+        },
+      });
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo firmar el parte de relevo');
+    }
+  }
+
+  async findMany(query: Record<string, string | undefined>) {
+    try {
+      const { data } = await this.http.get('/api/v1/handovers', {
+        params: query,
+      });
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudieron obtener los partes de relevo');
+    }
+  }
+
+  async findOne(id: string) {
+    try {
+      const { data } = await this.http.get(`/api/v1/handovers/${id}`);
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo obtener el parte');
+    }
+  }
+
+  async pending(query: Record<string, string | undefined>) {
+    try {
+      const { data } = await this.http.get('/api/v1/handovers/pending', {
+        params: query,
+      });
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudieron obtener las incidencias pendientes');
     }
   }
 

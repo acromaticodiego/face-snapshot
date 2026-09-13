@@ -10,15 +10,20 @@
  * ninguna traza, que es la forma mas dificil de depurar esto. Por eso
  * en `main.ts` es la primera linea y va separada del resto.
  *
- * POR QUE ESTE ARCHIVO ESTA REPETIDO EN LOS CINCO SERVICIOS NODE
- * ─────────────────────────────────────────────────────────────
+ * POR QUE ESTE ARCHIVO ESTA REPETIDO EN LOS SEIS SERVICIOS NODE
+ * ────────────────────────────────────────────────────────────
  * El ADR 0008 retiro el paquete de contratos compartido, y el motivo
  * era que compartir DTOs acopla despliegues: cambiar un campo obliga a
- * publicar y actualizar cinco servicios a la vez. Aqui no hay ningun
+ * publicar y actualizar varios servicios a la vez. Aqui no hay ningun
  * contrato. Esto es configuracion de arranque, no una frontera entre
- * servicios, y la copia es IDENTICA en los cinco a proposito: el
- * nombre y la version salen del `package.json` de cada uno, asi que no
- * hay ni una linea que cambiar entre copias.
+ * servicios, y las copias son iguales a proposito: el nombre y la
+ * version salen del `package.json` de cada uno, asi que no hay nada
+ * que cambiar entre ellas.
+ *
+ * La UNICA diferencia entre copias es que los servicios que no hablan
+ * con Redis -el Logbook Service- no registran su instrumentacion. No
+ * se deja por simetria porque seria arrastrar una dependencia que ese
+ * servicio no usa solo para que dos archivos coincidan byte a byte.
  *
  * NO PUEDE TUMBAR EL SERVICIO
  * ───────────────────────────

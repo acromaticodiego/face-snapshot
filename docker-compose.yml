@@ -128,6 +128,65 @@ services:
       - '8000'
     networks: [detector-net]
 
+  # ── Voz: transcripcion y estructuracion (Fase 5) ────────────────
+  #
+  # Simetrico al Vision Service: sin estado, sin base de datos, y no
+  # conoce identidades. Convierte audio en texto ordenado y nada mas.
+  #
+  # NADIE DEPENDE DE EL y el no depende de ningun servicio propio: si
+  # se cae, las puertas siguen abriendo y las jornadas siguen
+  # contandose. Lo unico que deja de funcionar es dictar un parte de
+  # relevo, y para eso queda escribirlo a mano.
+  voice-service:
+    build:
+      context: ./services/voice-service
+      dockerfile: Dockerfile
+    container_name: detector-voice
+    restart: unless-stopped
+    environment:
+      # Sin estas claves el servicio ARRANCA igual y lo avisa en el
+      # log. Es deliberado: que falte una credencial de un tercero no
+      # puede impedir levantar el sistema.
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Medido sobre 37.7 s de audio en espanol: nova-3 tardo 1955 ms y
+      # nova-2 8308 ms para una transcripcion identica palabra por
+      # palabra. No lo bajes sin volver a medir.
+      DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      DEEPGRAM_LANGUAGE: ${DEEPGRAM_LANGUAGE:-es}
+      # Version CONCRETA, nunca un alias tipo `gemini-flash-latest`: un
+      # alias cambia de modelo por debajo sin que nadie toque nada, y
+      # con el cambiarian las incidencias que el sistema saca del mismo
+      # parte.
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      MAX_AUDIO_SIZE_MB: ${MAX_AUDIO_SIZE_MB:-25}
+      VOICE_SERVICE_PORT: '8001'
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
+    # Este es el UNICO servicio del sistema que necesita salir a
+    # Internet, y por eso es el unico al que le puede afectar el DNS de
+    # la red local. Si `api.deepgram.com` no resuelve dentro del
+    # contenedor -pasa con algunos routers, que devuelven respuesta
+    # vacia para ese nombre concreto mientras resuelven todo lo demas-,
+    # el arreglo correcto es poner un DNS que funcione en el HOST.
+    #
+    # Mientras tanto hay una superposicion opcional que lo parchea solo
+    # para este servicio, con el diagnostico escrito dentro:
+    #
+    #   docker compose -f docker-compose.yml -f docker-compose.dns.yml up -d
+    # Sin `ports`: servicio interno, igual que el Vision Service.
+    expose:
+      - '8001'
+    networks: [detector-net]
+
   # ── Identidades y vectores faciales ─────────────────────────────
   face-service:
     build:
@@ -296,6 +355,54 @@ services:
         condition: service_healthy
     networks: [detector-net]
 
+  # ── Bitacora de relevo de turno (Fase 5) ────────────────────────
+  #
+  # Dueno de los partes FIRMADOS. No es una proyeccion: un texto que
+  # dicto una persona no se reconstruye de ningun evento, y por eso
+  # tiene schema y rol propios en lugar de vivir en shift_svc, que si
+  # es reconstruible reprocesando el stream (ADR 0007 y 0011).
+  #
+  # Depende del Access Service en UNA sola direccion y solo para
+  # enriquecer: si no responde, el parte se firma igual y se queda sin
+  # el cruce con los registros de puerta.
+  logbook-service:
+    build:
+      context: ./services/logbook-service
+      dockerfile: ../../infrastructure/docker/Dockerfile.nest-prisma
+      args:
+        PORT: '3005'
+    container_name: detector-logbook
+    restart: unless-stopped
+    environment:
+      LOGBOOK_DATABASE_URL: postgresql://logbook_svc_user:${LOGBOOK_SVC_DB_PASSWORD}@postgres:5432/${POSTGRES_DB:-face_access}?schema=logbook_svc
+      LOGBOOK_SERVICE_PORT: '3005'
+      ACCESS_SERVICE_URL: http://access-service:3002
+      # Plazo CORTO a proposito: quien firma un parte esta esperando
+      # delante de la pantalla, y el cruce de accesos es un extra.
+      # Mas vale firmarlo sin cruce en dos segundos que tenerlo
+      # esperando diez por algo que no cambia lo que declaro.
+      ACCESS_TIMEOUT_MS: ${ACCESS_TIMEOUT_MS:-2000}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
+    expose:
+      - '3005'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # `service_started` y no `service_healthy`: el Access Service es
+      # una dependencia OPCIONAL aqui. Esperar a que este sano seria
+      # afirmar que sin el no se puede firmar un parte, y si se puede.
+      access-service:
+        condition: service_started
+    networks: [detector-net]
+
   # ── Punto de entrada del frontend ───────────────────────────────
   api-gateway:
     build:
@@ -310,6 +417,14 @@ services:
       FACE_SERVICE_URL: http://face-service:3001
       ACCESS_SERVICE_URL: http://access-service:3002
       SHIFT_SERVICE_URL: http://shift-service:3004
+      VOICE_SERVICE_URL: http://voice-service:8001
+      LOGBOOK_SERVICE_URL: http://logbook-service:3005
+      MAX_AUDIO_SIZE_MB: ${MAX_AUDIO_SIZE_MB:-25}
+      # Plazo largo, y es el unico de este Gateway que lo es: detras
+      # hay dos llamadas a terceros encadenadas -transcribir y
+      # estructurar- sobre un audio que puede durar minutos. Se lo
+      # puede permitir porque no hay ninguna puerta esperando.
+      VOICE_TIMEOUT_MS: ${VOICE_TIMEOUT_MS:-180000}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       JWT_SECRET: ${JWT_SECRET}
       AUTH_SERVICE_URL: http://auth-service:3003
@@ -337,6 +452,10 @@ services:
         condition: service_started
       shift-service:
         condition: service_started
+      # Ni voice-service ni logbook-service aparecen aqui a proposito.
+      # El Gateway tiene que levantar y abrir puertas aunque dictar un
+      # parte de relevo no funcione: esperarlos seria decir que sin
+      # bitacora no se entra al edificio.
     networks: [detector-net]
 
   # ══════════════════════════════════════════════════════════════

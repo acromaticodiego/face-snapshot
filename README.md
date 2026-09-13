@@ -95,6 +95,8 @@ siguen funcionando y los eventos esperan en la outbox. Ver
 | **access-service** | Decide si se concede el acceso. Votación multi-frame, política, anti-passback, presencia, auditoría, emisión de sesión. **Única autoridad sobre si una puerta se abre.** | schema `access_svc` |
 | **shift-service** | Jornada laboral: estados de turno, línea de tiempo y horas. **Proyección de los eventos del Access Service**; no decide nada que abra una puerta. | schema `shift_svc` |
 | **vision-service** | Convierte píxeles en vectores. No conoce identidades ni toca la base de datos. | ninguna |
+| **voice-service** | Convierte audio en texto estructurado para la bitácora de relevo. **Devuelve borradores, no registros**; no conoce identidades ni toca la base de datos. | ninguna |
+| **logbook-service** | Dueño de la bitácora de relevo: partes ya **firmados**. Sin edición ni borrado; una corrección es un parte nuevo. | schema `logbook_svc` |
 
 ### Por qué las identidades están separadas así
 
@@ -896,19 +898,56 @@ medido su tasa de falso rechazo contra ataques reales, y denegar el paso
 a una persona real con un número sin calibrar es peor que el problema
 que resuelve.
 
-**Lo que NO se pudo demostrar.** Que detenga una foto en un móvil. Para
-eso hace falta un conjunto de ataques reales —fotos impresas, pantallas,
-máscaras— y medir APCER y BPCER; este proyecto no lo tiene. Se intentó
-con un ataque sintético y el intento dejó un hallazgo propio: **el
-detector deja de encontrar la cara antes de que la señal reaccione**. Un
-ataque de pantalla realista no se fabrica degradando una imagen, hay que
-fotografiar una pantalla.
+**Ya está medido con un ataque real, y no funciona.** El 2026-09-13 se
+probaron, con la misma webcam y seguidas, una cara real y una foto de
+esa cara en la pantalla de un móvil. **Las dos entraron, y las dos
+señales apuntan al revés:**
 
-Así que la afirmación honesta sigue siendo la de antes, con un matiz:
-**el sistema no es apto para control de acceso real**, ahora porque su
-defensa contra suplantación no está validada en lugar de no existir. El
-[ADR 0010](docs/adr/0010-deteccion-de-vida.md) detalla qué haría falta
-para encender el modo que sí deniega, y en qué orden.
+| | detalle fino | pico periódico |
+|---|---|---|
+| Cara real (3 frames) | 0.382 – 0.443 | **24.8 – 43.6** |
+| Móvil (4 frames) | 0.357 – 0.442 | **23.7 – 28.9** |
+
+El pico periódico existe precisamente para delatar la rejilla de una
+pantalla, y marcó **más alto con la cara real**. El detalle fino da
+prácticamente lo mismo en los dos casos. **Esto no es un problema de
+umbral**: cualquiera que atrapara el móvil rechazaría antes una cara
+real. No se calibra, se sustituye.
+
+**Por qué falla, y es estructural.** La señal se mide sobre el recorte
+alineado de 112x112, y para llegar a él la imagen pasa por dos
+reducciones sin filtro antialias: el terminal manda 640 px de ancho, y
+`norm_crop` remuestrea a 112 con un `warpAffine` bilineal. La rejilla de
+una pantalla no sobrevive a eso —se pierde o se pliega por aliasing a
+una frecuencia cualquiera—, así que `pattern_peak` no está midiendo
+periodicidad: está midiendo si la banda alta tiene estructura marcada, y
+una cara real directa tiene más que una pantalla. De ahí el signo
+invertido. **Cualquier señal sustituta que dependa de la textura tendrá
+que medirse antes de esas reducciones.**
+
+Antes se había intentado fabricar el ataque degradando una imagen, y
+aquel intento dejó otro hallazgo que sigue en pie: **el detector deja de
+encontrar la cara antes de que la señal reaccione**. Un ataque de
+pantalla realista no se fabrica, hay que fotografiar una pantalla.
+
+**Cómo reunir el conjunto con el que medir.** Hay una herramienta para
+grabarlo por el mismo camino que captura el terminal:
+
+```bash
+node scripts/capture-attack-set.mjs      # abre http://localhost:5174
+```
+
+Guarda las dos clases en `datasets/liveness/` —fuera del repositorio,
+son rostros reales— con dos variantes de cada disparo: lo que el
+terminal envía hoy, y el frame nativo por si una señal futura necesita
+más píxeles. Sin ese conjunto no se puede evaluar ninguna alternativa.
+
+Así que la afirmación honesta es más dura que antes: **el sistema no es
+apto para control de acceso real**, y su defensa contra suplantación no
+solo está sin validar, sino medida y fallando. El
+[ADR 0010](docs/adr/0010-deteccion-de-vida.md) detalla las dos vías que
+quedan —un modelo entrenado, o el reto activo— y qué haría falta para
+encender el modo que sí deniega.
 
 #### 2. Sin revocación de tokens
 
@@ -996,6 +1035,249 @@ segunda puerta sí podría colarse por ese hueco.
 Una instancia, sin réplica. Es aceptable porque ninguna de sus dos
 funciones puede dejar a nadie fuera de un edificio: la votación degrada
 a memoria y los eventos esperan en la outbox hasta que vuelva.
+
+---
+
+## La bitácora de relevo de turno
+
+Un vigilante dicta las novedades al terminar su jornada y el sistema las
+ordena en incidencias.
+
+Es un camino aparte del de reconocimiento —el del diagrama de arriba— y
+no toca ninguna puerta:
+
+```
+  persona identificada por su cara
+        │  audio (multipart)
+        ▼
+  ┌──────────────┐   POST /me/logbook/draft   ┌────────────────────┐
+  │ API GATEWAY  │ ─────────────────────────► │   VOICE SERVICE    │
+  │ guard /me    │                            │  Python · SIN BD   │
+  └──────┬───────┘ ◄───── BORRADOR ────────── │  Deepgram → Gemini │
+         │                                    └────────────────────┘
+         │   la persona REVISA y FIRMA
+         │   POST /me/logbook
+         ▼
+  ┌────────────────────┐   ¿qué registraron   ┌────────────────────┐
+  │  LOGBOOK SERVICE   │ ── las puertas? ───► │   ACCESS SERVICE   │
+  │  NestJS + Prisma   │                      │  (solo lectura)    │
+  │  partes FIRMADOS   │ ◄─── resumen ─────── └────────────────────┘
+  │  inmutables        │      CONGELADO dentro del parte
+  └────────────────────┘
+```
+
+Si el Voice Service no responde, el parte se escribe a mano. Si el
+Access Service no responde, se firma sin el cruce. **Ninguno de los dos
+puede impedir que quede constancia de un turno**, y ninguno de los dos
+aparece en el `depends_on` del Gateway: el sistema abre puertas aunque
+dictar un parte no funcione. El `voice-service` transcribe con Deepgram y
+estructura con Gemini, y es **sin estado**: no guarda nada, no conoce
+identidades y no decide nada.
+
+### Lo que devuelve es un borrador, no un registro
+
+Nada se guarda hasta que la persona que vivió el turno lo confirma. Con
+el umbral de similitud o con el anti-passback decide otro servicio,
+porque hay una regla mecánica que aplicar. Un parte de relevo no tiene
+regla: es el testimonio de alguien, y es el documento que se lee cuando
+algo ha salido mal. **Un renglón inventado ahí manda a una persona a
+investigar un hecho que nunca ocurrió.**
+
+### Cómo se comprueba que el modelo no se inventó nada
+
+Al modelo se le exige una **cita literal** de la transcripción por cada
+incidencia, y después el servicio comprueba que esa cita existe de
+verdad en el texto. Cada incidencia sale marcada con `citaVerificada`.
+
+> «No inventes nada» es una instrucción y no se puede verificar.
+> «Enséñame dónde lo leíste» sí.
+
+Una cita que no cuadra **se marca, no se borra**: esconderla sería
+perder justo lo que quien revisa necesita ver. El recuento va al span de
+la traza como `voice.incidents.unbacked`.
+
+Es lo único de este servicio que se puede probar sin red, y por eso sus
+16 casos corren en el CI.
+
+### Si un proveedor se cae, el parte se registra igual
+
+| Qué falla | Qué pasa |
+|---|---|
+| Gemini | Se devuelve la transcripción sola, y `estructuraOmitidaPor` dice por qué |
+| Deepgram | `503` con código `TRANSCRIPTION_UNAVAILABLE`, para ofrecer escribirlo a mano |
+| Faltan las claves | El servicio arranca igual y lo avisa en el log |
+
+### Aviso de privacidad
+
+El resto del sistema no deja salir ningún dato biométrico: los vectores
+faciales no cruzan la frontera y no se guarda ninguna imagen. **Este
+servicio sí**: manda audio a Deepgram y texto a Google, y la voz también
+es un dato biométrico.
+
+El audio no se almacena en ningún sitio —ni disco, ni caché, ni logs— y
+ni la transcripción ni el texto estructurado aparecen en las trazas, que
+solo llevan métricas. Pero la afirmación «ningún dato biométrico sale
+del sistema» **deja de ser cierta** con la Fase 5 encendida, y está
+dicho aquí para que nadie lo descubra leyendo el código.
+
+### Si dictar devuelve «la transcripción no está disponible»
+
+**Lo primero que hay que descartar no es el código, es la máquina.** El
+Voice Service es el único servicio que sale a Internet, así que es el
+único al que le afectan estas cosas, y el síntoma no se parece a su
+causa. Tres comprobaciones, en este orden.
+
+**1. ¿Resuelve el nombre?**
+
+```bash
+docker compose exec voice-service python -c   "import socket; print(socket.gethostbyname('api.deepgram.com'))"
+```
+
+Hay routers y filtros que resuelven todo menos ciertos nombres,
+devolviendo respuesta vacía en lugar de error. Si falla, pon 1.1.1.1 o
+8.8.8.8 como DNS **en el host** —cura además los fallos al construir
+imágenes, que vienen de lo mismo—. Parche inmediato:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dns.yml up -d
+```
+
+**2. ¿Hay un antivirus interceptando el TLS?** Es la causa que más
+cuesta identificar, porque el error dice «certificado autofirmado en la
+cadena» y suena a problema del servidor:
+
+```bash
+docker compose exec voice-service python -c "
+import socket, ssl, re
+s = socket.create_connection(('api.deepgram.com', 443), timeout=10)
+t = ssl._create_unverified_context().wrap_socket(s, server_hostname='api.deepgram.com')
+der = t.getpeercert(binary_form=True)
+legible = bytes(c if 32 <= c < 127 else 46 for c in der).decode()
+print(' | '.join(re.findall(r'[ -~]{5,}', legible)[:4]))"
+```
+
+Si ahí aparece el nombre de un antivirus en lugar de una autoridad
+conocida, ese antivirus está abriendo y volviendo a firmar la conexión.
+**Se comprobó en esta máquina:** 7 de 8 conexiones llegaban firmadas por
+«AO Kaspersky Lab», y 9 de cada 10 peticiones fallaban por eso.
+
+El arreglo, en orden de preferencia:
+
+1. **Excluir `api.deepgram.com`** del análisis de conexiones cifradas
+   del antivirus. Es lo más quirúrgico y suele arreglar también el
+   punto 1, porque ese mismo filtrado actúa sobre el DNS.
+2. Desactivar el análisis de HTTPS. Más amplio de lo necesario.
+3. Añadir la raíz del antivirus al almacén de confianza del contenedor.
+   Funciona, y conviene saber lo que implica: **el antivirus lee el
+   audio en tránsito**, y este proyecto es cuidadoso justamente con eso.
+
+**3. ¿Llegó y volvió vacío?** Si el mensaje dice **«no se reconoció
+ninguna palabra en el audio»**, entonces la red está bien y es el
+micrófono. Los dos mensajes se distinguen a propósito, porque llevan a
+buscar en sitios opuestos.
+
+Ver [ADR 0011](docs/adr/0011-voz-e-ia.md).
+
+### Dónde se guarda, y por qué no en el servicio de turnos
+
+En un `logbook-service` con su propio schema y su propio rol. El motivo
+no es de gusto: el Shift Service es una **proyección** y podría
+reconstruirse entero reprocesando los eventos sin que nadie se quedara
+fuera del edificio. **Un parte que dictó una persona no se reconstruye de
+ningún evento**, y guardarlo ahí destruiría la propiedad que hace
+defendible aquel diseño.
+
+### Lo que hace que un parte valga como registro
+
+- **Solo entra lo firmado.** No hay borradores en la base de datos. El
+  borrador vive en el cliente entre dictarlo y firmarlo.
+- **Es inmutable.** No hay editar ni borrar, en ningún sitio. Una
+  corrección es un parte nuevo que apunta al anterior, y los dos quedan.
+- **Firma quien vivió el turno.** La persona sale del token de sesión
+  facial, nunca del cuerpo de la petición, y la vista de administración
+  es de **solo lectura**: un administrador que pudiera redactar el parte
+  de otro convertiría la bitácora en algo que no prueba nada.
+- **El cruce con las puertas se congela al firmar.** Un parte es
+  evidencia de lo que se sabía entonces; si se compusiera al leerlo,
+  diría cosas distintas según el día.
+
+### Cómo se dicta y se firma
+
+En `/relevo`, a la que se llega desde `/home` con la jornada abierta.
+Grabas, el sistema propone un resumen y una lista de incidencias, tú las
+corriges, y firmas.
+
+**Se llega al final sin micrófono y sin modelo.** Si la transcripción no
+está disponible se escribe a mano; si el estructurador no responde,
+queda la transcripción y las incidencias se añaden a mano. Un vigilante
+que termina su turno no puede irse sin dejar constancia porque un
+proveedor externo esté caído.
+
+**La transcripción se muestra y no se edita.** El resumen y las
+incidencias sí: son una interpretación. El texto es lo que se dijo, y es
+lo que zanja una discusión dentro de seis meses.
+
+**Cada incidencia firmada declara de dónde salió** —aceptada tal cual,
+corregida, o escrita a mano—. Solo el cliente puede saberlo, porque el
+servidor no ve la propuesta original. Es el dato con el que dentro de
+unos meses se podrá responder si el modelo aporta algo o cuesta más
+trabajo del que ahorra.
+
+**Y una cita que el modelo no pudo respaldar se ve ANTES de firmar**,
+marcada en la propia incidencia. Es lo único que este sistema sabe
+detectar sobre la invención de un modelo, y viaja desde el Voice
+Service hasta la pantalla.
+
+### Lo que necesita quien entra al turno
+
+`GET /me/logbook/pending` devuelve lo que quedó sin cerrar. Es la
+consulta que justifica tener una bitácora: sin ella habría que repasar el
+turno anterior entero para enterarse de que el ascensor sigue roto. No
+filtra por persona a propósito, porque lo pendiente lo dejó otro. Sale
+en `/home` nada más identificarse, que es el momento exacto en que hace
+falta.
+
+Ver [ADR 0012](docs/adr/0012-bitacora-de-relevo.md).
+
+---
+
+## Preguntarle al sistema desde un modelo
+
+Hay un **servidor MCP** que expone el dominio como herramientas, para
+poder preguntar en lenguaje natural quién está dentro, qué jornadas hay
+abiertas o qué dejó pendiente el turno anterior.
+
+```bash
+cd services/mcp-server && npm ci && npm run build && npm run smoke
+```
+
+Se conecta por stdio a Claude Code o a Claude Desktop; las instrucciones
+están en [services/mcp-server/README.md](services/mcp-server/README.md).
+
+**Es un cliente del Gateway, no de la base de datos.** Se autentica con
+una cuenta de administración y pasa por los mismos guards que el
+navegador: no tiene ni un privilegio que no tenga alguien sentado
+delante del panel. Ir directo a PostgreSQL habría sido más rápido y
+habría abierto una segunda puerta que nadie vigila.
+
+**Y es de solo lectura, anunciado como tal.** Ninguna herramienta abre
+una puerta, firma un parte ni toca una jornada.
+
+> Un modelo conectado a esto puede contar lo que pasó. No puede hacer
+> que pase nada.
+
+No es prudencia genérica: la autoridad de este sistema está
+deliberadamente concentrada —una puerta la abre el Access Service con
+una cara delante de una cámara, un parte lo firma quien vivió el turno—
+y una herramienta que hiciera cualquiera de las dos cosas por
+interpretación de una frase vaciaría de sentido las dos decisiones. La
+prueba de humo lo comprueba explícitamente.
+
+**Lo que expone son datos de terceros:** nombres, horas de entrada y
+salida, y lo que alguien declaró en un parte. La regla práctica es no
+ejecutarlo donde no dejarías abierto el panel de operación.
+
+Ver [ADR 0013](docs/adr/0013-servidor-mcp.md).
 
 ---
 
@@ -1185,6 +1467,7 @@ lo sobrescribe.
 ```bash
 node scripts/ci-local.mjs        # reproduce el CI completo en local
 node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
+node scripts/capture-attack-set.mjs   # graba el conjunto de ataque (ver limitación 1)
 ```
 
 ### Qué se prueba, y por qué eso
@@ -1196,6 +1479,7 @@ node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
 | Política de acceso, votación, anti-passback, umbral, outbox, evento | 94 |
 | Máquina de turnos y parser del bus | 44 |
 | Frontend: reglas de `/home` y del listado de personas | 33 |
+| Frontend: qué se firma en un parte de relevo | 35 |
 
 Las dos primeras filas son nuevas y tapan una asimetría que el proyecto
 arrastraba: se probaba a fondo la **lógica de dominio** y no se probaba
@@ -1298,3 +1582,6 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0008 | Cada servicio es dueño de sus tipos; se retira el paquete de contratos |
 | 0009 | Observabilidad con OpenTelemetry, y la traza cruza el bus |
 | 0010 | Detección de vida pasiva, y por qué no deniega por defecto |
+| 0011 | Voz e IA: el modelo propone, la persona firma |
+| 0012 | La bitácora: firmada, inmutable y con el cruce congelado |
+| 0013 | El servidor MCP: cliente del Gateway, y de solo lectura |

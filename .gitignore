@@ -47,9 +47,16 @@ modelos/*.onnx
 *.pkl
 
 # Directorios de datos sensibles, anclados a la raiz del proyecto.
+#
+# /datasets/ guarda los conjuntos de captura para medir la deteccion
+# de vida: son rostros reales de personas concretas. Se ignora el
+# directorio ENTERO y no solo las imagenes, porque el manifiesto es
+# un .jsonl que las reglas de arriba no cubren y que describe quien
+# fue capturado, cuando y con que camara.
 /captures/
 /embeddings/
 /dumps/
+/datasets/
 
 # Excepciones: recursos de la interfaz y de la documentacion.
 !docs/**/*.png

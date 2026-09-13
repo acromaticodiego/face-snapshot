@@ -255,6 +255,13 @@ fallos**:
    defecto, el ataque sintético más fuerte que el detector tolera **no
    se detecta**.
 
+   **MEDIDO EL 2026-09-13, y es peor que «no separa»: las señales
+   apuntan AL REVES.** Con una cara real el pico periódico llegó a 43.6;
+   con una foto en la pantalla de un móvil nunca pasó de 28.9, cuando
+   ese número existe precisamente para delatar pantallas. Ningún umbral
+   sirve. Detalle completo más abajo, en «LA DETECCION DE VIDA NO
+   FUNCIONA».
+
    El sistema sigue **sin ser apto para control de acceso real**, ahora
    porque su defensa no está validada en lugar de no existir. Lo que
    haría falta para encender `HARD`, y en qué orden, está en el
@@ -437,22 +444,271 @@ de tiempo.
 
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Fase 5, voz e IA.** Es lo único que queda del plan original.
+**1. ~~Fase 5, voz e IA~~ · COMPLETA.** `voice-service`,
+`logbook-service`, servidor MCP e interfaz, verificados contra el stack.
+Detalle abajo.
+
+**2. Sustituir la señal de detección de vida**, que es lo único que
+queda del plan. La herramienta para reunir el conjunto de ataque ya
+existe: `node scripts/capture-attack-set.mjs`.
 
 **2. Conseguir ataques reales y calibrar la detección de vida**, que es
 lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
 
-### Fase 5 — Voz e IA
-- `voice-service` (Python, sin estado, simétrico al vision-service):
-  audio → Deepgram → Gemini → estructura
-- Caso de uso real: **bitácora de relevo de turno**. Un vigilante dicta
-  las novedades, el sistema las estructura en incidencias y las cruza
-  con los registros de acceso de esa franja horaria
-- El audio se transcribe y **se descarta**, igual que las imágenes
-  faciales: coherencia con la política de privacidad existente
-- **Servidor MCP** que expone el dominio como herramientas
-  (`quien_esta_dentro`, `horas_trabajadas`, `novedades_de_turno`)
-- Las claves de Deepgram y Gemini están en el `.env` del usuario
+### Fase 5 — Voz e IA · EL `voice-service` YA ESTA
+
+**Hecho y verificado contra el stack real:** el `voice-service` (Python,
+sin estado, simétrico al vision-service). Audio → Deepgram → Gemini →
+estructura, con los dos proveedores reales. Ver
+[ADR 0011](adr/0011-voz-e-ia.md).
+
+Medido de extremo a extremo con 37.7 s de audio en español:
+
+    transcribir .....  1.4 - 3.6 s   (nova-3)
+    estructurar .....  1.8 - 6.0 s   (gemini-3.8-flash)
+    4 incidencias, las 4 con cita respaldada
+
+**Lo que hay que entender de este servicio**, porque condiciona lo que
+venga después:
+
+1. **Lo que devuelve es un BORRADOR, no un registro.** Nada se guarda
+   hasta que la persona que vivió el turno lo confirma. Un parte de
+   relevo no tiene regla mecánica que aplicar: es un testimonio, y es
+   el documento que se lee cuando algo ha salido mal.
+2. **La defensa contra la invención es una comprobación, no una
+   instrucción.** Al modelo se le exige una cita literal por incidencia
+   y el servicio comprueba que existe en la transcripción
+   (`app/services/citas.py`, 16 tests **que sí corren en el CI** porque
+   solo usan la biblioteca estándar). Una cita que no cuadra **se marca,
+   no se borra**. El recuento va a la traza como
+   `voice.incidents.unbacked`.
+3. **Rompe la promesa de privacidad del proyecto, y hay que decirlo.**
+   Es el único punto donde un dato biométrico sale del backend: la voz.
+   El audio no se guarda en ningún sitio y las trazas solo llevan
+   métricas, pero «ningún dato biométrico sale» deja de ser cierto.
+4. **Decisiones medidas, no copiadas de una documentación.** `nova-3`
+   frente a `nova-2`: 1955 ms contra 8308 ms por una transcripción
+   idéntica. Y `smart_format` **apagado**, porque convierte «las tres y
+   cuarto» en «las 3 y 4º» y en un parte de turno la hora es el dato por
+   el que alguien vuelve a leerlo.
+5. **Modelo con versión fija y temperatura cero.** Nada de
+   `gemini-flash-latest`: un alias cambia de modelo por debajo y con él
+   cambiarían las incidencias que salen del mismo parte.
+
+**Si api.deepgram.com no resuelve, no es el código.** Hay routers
+domésticos que devuelven respuesta vacía para ese nombre concreto
+mientras resuelven todo lo demás. Arréglalo poniendo un DNS que funcione
+en el HOST; el `docker-compose.yml` lleva una línea `dns:` comentada
+para parchearlo solo en este servicio. Es el único servicio del sistema
+que necesita salir a Internet.
+
+### El `logbook-service` también está · HECHO
+
+Dueño de la bitácora, con schema y rol propios (`logbook_svc`). Ver
+[ADR 0012](adr/0012-bitacora-de-relevo.md).
+
+**Verificado contra el stack real**, firmando un parte por el Gateway
+con un token de sesión: el nombre de la sede lo trae del Access Service
+(no del cuerpo), el día se imputa en hora local de Bogotá, y el cruce de
+accesos quedó congelado dentro —266 intentos, 9 concedidos, 257
+denegados, con `BELOW_THRESHOLD` 252 y `LIVENESS_FAILED` 1—.
+
+**Las siete decisiones que no hay que deshacer:**
+
+1. **Aquí solo entra lo FIRMADO.** No hay borradores en la base de
+   datos. El borrador vive en el cliente entre dictarlo y firmarlo.
+2. **Inmutable.** No hay `PUT`, ni `PATCH`, ni `DELETE`, ni en el
+   servicio ni en el Gateway. Una corrección es un parte nuevo que
+   apunta al anterior con `correctsEntryId`, y los dos quedan.
+3. **Firma quien vivió el turno.** `personId` sale del token y viaja en
+   cabecera; el esquema de entrada **no tiene** campo para la persona, y
+   hay un test que lo fija. La vista de administración es de **solo
+   lectura**.
+4. **El cruce de accesos se congela al firmar.** No se compone al leer:
+   un parte es evidencia de lo que se sabía entonces.
+5. **Sin Access Service se firma igual** (probado parando el
+   contenedor): `accessSnapshot` y `siteName` a nulo, día calculado en
+   UTC, y aviso en el log. Por eso el `depends_on` es `service_started`.
+6. **Cada incidencia dice de dónde salió** —aceptada, editada o añadida
+   a mano—. Es lo que permitirá responder con datos si el modelo sirve
+   de algo.
+7. **La hora se guarda tal y como se dijo** («las tres y cuarto»), sin
+   normalizar.
+
+16 tests de lógica pura, verificados con cinco mutaciones que cada una
+tumba exactamente un caso.
+
+### El servidor MCP también está · HECHO
+
+`services/mcp-server`, por stdio y **fuera del compose**. Tres
+herramientas: `quien_esta_dentro`, `horas_trabajadas` y
+`novedades_de_turno`. Ver [ADR 0013](adr/0013-servidor-mcp.md) y el
+[README del paquete](../services/mcp-server/README.md).
+
+**Lo que no hay que deshacer:**
+
+1. **Es cliente del GATEWAY, no de la base de datos.** Se autentica con
+   una cuenta de administración y pasa por los mismos guards que el
+   navegador. Ir directo a PostgreSQL sería más rápido y abriría una
+   segunda puerta que nadie vigila, además de saltarse el aislamiento
+   por roles.
+2. **Solo lectura, y anunciado con `readOnlyHint`.** Ninguna herramienta
+   abre una puerta, firma un parte ni toca una jornada. La prueba de
+   humo lo comprueba, porque es la garantía más fácil de romper sin
+   querer añadiendo una herramienta útil.
+3. **Nada en `stdout` salvo el protocolo.** stdio usa la salida estándar
+   para el JSON-RPC: un `console.log` suelto corrompe la conversación y
+   el cliente se desconecta sin decir por qué. Los avisos van por
+   `stderr`, con la función `aviso()`.
+4. **Devuelve TEXTO, no JSON crudo.** Lo consume un modelo que se lo
+   cuenta a una persona. Ahí vive casi toda la lógica, y por eso los 18
+   tests son de formateo: este servidor no puede escribir nada, pero sí
+   contar mal lo que pasó.
+5. **`quien_esta_dentro` avisa en su respuesta de que «dentro» es
+   presencia física y no jornada abierta.** Sin esa nota, un modelo las
+   mezcla y afirma que alguien está en el edificio cuando está
+   `EN_PAUSA`.
+
+**Verificado contra el stack real:** `npm run smoke`, 9 comprobaciones
+en verde, hablando el protocolo por stdio con el cliente oficial del
+SDK. Devolvió 21 personas dentro, 21 jornadas abiertas y las 2
+incidencias pendientes del parte firmado.
+
+    cd services/mcp-server && npm ci && npm run build && npm run smoke
+
+### La interfaz también está · FASE 5 COMPLETA
+
+`/relevo` para dictar, revisar y firmar; y en `/home`, lo que dejó
+pendiente el turno anterior nada más identificarse.
+
+**Cuatro reglas viven solo en el frontend**, y tienen tests:
+
+1. **Sin jornada abierta no se firma.** De ahí sale el `siteId` y el
+   inicio del periodo. Para esto se añadió `siteId` a `/me/shift`: el
+   terminal conoce su puerta, no su sede.
+2. **Se llega al final sin micrófono y sin modelo.** Sin transcripción
+   se escribe a mano; sin estructurador queda la transcripción y las
+   incidencias se añaden a mano.
+3. **Una cita sin respaldo se ve ANTES de firmar.**
+4. **Cada incidencia declara de dónde salió** —aceptada, corregida o
+   añadida a mano—. Solo el cliente lo sabe.
+
+La lógica está en `frontend/src/lib/handover.ts`, aparte del JSX para
+poder probarla sin simular un micrófono. 35 casos nuevos; el frontend
+pasa de 33 a 68.
+
+**Lo que la verificación por mutación destapó, y conviene saber.** Dos
+de esos tests afirmaban más de lo que comprobaban: uno decía cubrir una
+copia defensiva que **no hacía ningún trabajo** —el spread de al lado ya
+copiaba—, y otro daba por probado un invariante que pasaba por
+casualidad. Están corregidos, y el comentario que explicaba la
+protección inexistente también. Si añades tests aquí, rómpelos antes de
+creerlos.
+
+**La transcripción no se edita, a propósito.** El resumen y las
+incidencias sí. El texto es lo que se dijo y es lo que zanja una
+discusión; la estructura es una interpretación.
+
+**FASE 5 COMPLETA.** Lo siguiente es el paso 2: sustituir la señal de
+detección de vida, para lo que ya existe
+`node scripts/capture-attack-set.mjs`.
+
+### LA DETECCION DE VIDA NO FUNCIONA — medido con datos reales
+
+**2026-09-13.** Se midieron dos pruebas consecutivas con la misma webcam
+y la misma persona: primero su cara real, después una foto de su cara en
+la pantalla del móvil. Las dos entraron. Estos son los números que midió
+el Vision Service, sacados de las trazas:
+
+| | detalle fino | pico periódico |
+|---|---|---|
+| **Cara real** (3 frames) | 0.3819 – 0.4431 | **24.8 – 43.6** |
+| **Móvil** (4 frames) | 0.3571 – 0.4417 | **23.7 – 28.9** |
+| Móvil, sesión anterior (3 frames) | 0.4503 – 0.4816 | 21.8 – 26.7 |
+
+Medias: detalle 0.403 (real) frente a 0.407 (móvil). Pico **34.1**
+(real) frente a **25.0** (móvil).
+
+**LAS DOS SEÑALES APUNTAN AL REVES.**
+
+- El **pico periódico** existe para delatar la rejilla de una pantalla.
+  Marcó MAS ALTO con la cara real (hasta 43.6) que con el móvil (nunca
+  pasó de 28.9).
+- El **detalle fino** debía caer con una recaptura. Da prácticamente lo
+  mismo en ambos casos, y si acaso ligeramente más alto en el móvil.
+
+**No es un problema de umbral.** Cualquier umbral que atrapara el móvil
+rechazaría antes una cara real. Esto no se calibra: se retira o se
+sustituye.
+
+**Por qué falla, y es estructural, no mala suerte.** La señal se mide
+sobre el recorte alineado de 112x112, y entre el sensor y ese recorte
+hay **dos reducciones sin filtro antialias**: el terminal manda 640 px
+de ancho (`useCamera.captureFrame`, 640 y calidad 0.75) y `norm_crop`
+remuestrea a 112 con un `warpAffine` bilineal. Una rejilla de píxeles no
+sobrevive a eso: se pierde, o se pliega por aliasing a una frecuencia
+cualquiera. A eso se suma que una pantalla moderna a la distancia de uso
+ya está en el límite de lo que resuelve una webcam de 720p.
+
+Y `pattern_peak`, siendo `max/mediana` de la banda alta, mide de hecho
+**si la banda alta tiene estructura destacada**, no si hay periodicidad.
+Una cara real de frente la tiene —pelo, bordes, textura de piel—; una
+foto en pantalla llega más suave. Por eso el signo sale invertido de
+forma consistente, y no por ruido.
+
+Las degradaciones sintéticas del ADR 0010 reaccionaban porque la rejilla
+se aplicaba píxel a píxel **sobre la imagen ya reducida**, que es algo
+que no le pasa a ninguna foto de ninguna pantalla.
+
+**Consecuencia para lo que venga:** cualquier señal pasiva que dependa
+de la textura **no puede medirse sobre el recorte de 112**, y
+probablemente tampoco sobre el frame de 640 que el terminal envía hoy.
+Sustituir la señal ya no es solo cambiar `liveness.py`: es decidir
+también qué imagen llega hasta ahí.
+
+**QUE HACER, y qué NO hacer:**
+
+1. **NO tocar los umbrales.** Están anotados en `.env.example` como
+   provisionales y ahora se sabe que ninguno sirve.
+2. **NO poner `LIVENESS_MODE=HARD`.** Dejaría fuera a gente real antes
+   que a un atacante. El defecto `SOFT` es lo único que ha evitado que
+   este fallo tuviera consecuencias.
+3. **Decidir entre retirar la señal espectral o sustituirla.** Las dos
+   vías descritas en el [ADR 0010](adr/0010-deteccion-de-vida.md) siguen
+   en pie, y ahora hay con qué medirlas: un modelo entrenado
+   (MiniFASNet), o el reto activo (parpadear), que es el único cuya
+   eficacia se puede demostrar.
+4. **Ya hay herramienta para reunir el conjunto**, que era lo que
+   faltaba:
+
+   ```bash
+   node scripts/capture-attack-set.mjs      # abre http://localhost:5174
+   ```
+
+   Abre una página, usa la misma webcam y **los mismos parámetros de
+   captura que el terminal** —copiados de `useCamera.ts`, porque un
+   conjunto grabado por otra ruta mide una cámara que este sistema no
+   usa—, y guarda las dos clases en `datasets/liveness/`, que el
+   `.gitignore` excluye entero: son rostros reales y el script se niega
+   a arrancar si git no lo confirma.
+
+   De cada disparo guarda **dos variantes**: `terminal` (640 px, calidad
+   0.75, lo único que el sistema ve hoy) y `nativo` (el frame completo a
+   0.95). La segunda existe por el hallazgo de arriba: si la señal
+   sustituta necesita más píxeles, habría que repetir la sesión entera,
+   y el tiempo de alguien posando delante de una cámara es el recurso
+   caro de todo esto.
+
+   Lo que **todavía no existe** es el script que mida el conjunto una
+   vez grabado —pasar cada imagen por el Vision Service y sacar APCER y
+   BPCER—. Va con el paso 2, no con la captura.
+
+**Lo que esto NO invalida.** El andamiaje funciona y está probado: la
+evidencia viaja del Vision Service a la decisión, `HARD` deniega con
+`LIVENESS_FAILED`, `SOFT` con la misma sospecha deja pasar, y cuesta
+4.7 ms. Sustituir la señal es cambiar el contenido de
+`app/recognition/liveness.py` y los umbrales; no hay que rehacer nada
+más.
 
 ### ~~Fase 6 — Anti-spoofing~~ · HECHA, con una advertencia grande
 

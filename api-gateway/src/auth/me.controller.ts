@@ -6,10 +6,28 @@ import {
   Query,
   Req,
   UseGuards,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 
-import { ShiftServiceClient } from '../proxy/service-clients';
+import {
+  validateUploadedAudio,
+  type UploadedAudio,
+} from '../common/uploaded-audio';
+import {
+  LogbookServiceClient,
+  ShiftServiceClient,
+  VoiceServiceClient,
+} from '../proxy/service-clients';
 import {
   AccessSessionGuard,
   type RequestWithSession,
@@ -30,7 +48,17 @@ import {
 @UseGuards(AccessSessionGuard)
 @Controller('me')
 export class MeController {
-  constructor(private readonly shifts: ShiftServiceClient) {}
+  private readonly maxAudioBytes: number;
+
+  constructor(
+    private readonly shifts: ShiftServiceClient,
+    private readonly voice: VoiceServiceClient,
+    private readonly logbook: LogbookServiceClient,
+    config: ConfigService,
+  ) {
+    this.maxAudioBytes =
+      Number(config.get<string>('MAX_AUDIO_SIZE_MB', '25')) * 1024 * 1024;
+  }
 
   @Get('shift')
   @ApiOperation({
@@ -67,5 +95,72 @@ export class MeController {
   @ApiOperation({ summary: 'Declara que vuelves al trabajo' })
   endBreak(@Req() request: RequestWithSession) {
     return this.shifts.changeShift(request.session!.personId, 'resume');
+  }
+
+  // ── Bitácora de relevo de turno ────────────────────────────────
+
+  @Post('logbook/draft')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Convierte un parte dictado en un borrador estructurado',
+    description:
+      'NO guarda nada. Devuelve una propuesta que hay que revisar y ' +
+      'firmar con POST /me/logbook. Si el estructurador no responde, ' +
+      'llega solo la transcripción y el parte se puede firmar igual.',
+  })
+  @UseInterceptors(FileInterceptor('file'))
+  draft(@UploadedFile() file: UploadedAudio) {
+    const audio = validateUploadedAudio(file, this.maxAudioBytes);
+    return this.voice.logbookDraft(
+      audio.buffer,
+      audio.originalname || 'parte.webm',
+      audio.mimetype,
+    );
+  }
+
+  @Post('logbook')
+  @ApiOperation({
+    summary: 'Firma un parte de relevo',
+    description:
+      'Lo que se firma aquí es INMUTABLE: no hay edición ni borrado. ' +
+      'Una corrección es un parte nuevo que apunta al anterior.',
+  })
+  signHandover(@Req() request: RequestWithSession, @Body() body: unknown) {
+    // La persona sale del token, nunca del cuerpo. Es la misma regla
+    // que el resto de este controlador, y aquí es todavía más
+    // importante: un parte vale porque lo firmó quien vivió el turno.
+    return this.logbook.sign(
+      {
+        personId: request.session!.personId,
+        personName: request.session!.personName,
+      },
+      body,
+    );
+  }
+
+  @Get('logbook')
+  @ApiOperation({ summary: 'Partes de relevo propios' })
+  @ApiQuery({ name: 'take', required: false })
+  myHandovers(
+    @Req() request: RequestWithSession,
+    @Query('take') take?: string,
+  ) {
+    return this.logbook.findMany({
+      personId: request.session!.personId,
+      take,
+    });
+  }
+
+  @Get('logbook/pending')
+  @ApiOperation({
+    summary: 'Incidencias sin cerrar que dejó el turno anterior',
+    description:
+      'Es lo que necesita ver quien entra a trabajar, y por eso no ' +
+      'filtra por persona: lo que quedó pendiente lo dejó otro.',
+  })
+  @ApiQuery({ name: 'siteId', required: false })
+  @ApiQuery({ name: 'days', required: false })
+  pending(@Query('siteId') siteId?: string, @Query('days') days?: string) {
+    return this.logbook.pending({ siteId, days });
   }
 }

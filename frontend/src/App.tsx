@@ -6,6 +6,7 @@ import { AdminDashboardPage } from '@/pages/AdminDashboardPage';
 import { AdminFacesPage } from '@/pages/AdminFacesPage';
 import { AdminLoginPage } from '@/pages/AdminLoginPage';
 import { AuthPage } from '@/pages/AuthPage';
+import { HandoverPage } from '@/pages/HandoverPage';
 import { HomePage } from '@/pages/HomePage';
 
 export default function App() {
@@ -14,6 +15,10 @@ export default function App() {
       <Routes>
         <Route path="/" element={<AuthPage />} />
         <Route path="/home" element={<HomePage />} />
+        {/* Dictar y firmar un parte de relevo. Como /home, se llega
+            tras identificarse con la cara; el token es lo que protege
+            los datos, no la ruta. */}
+        <Route path="/relevo" element={<HandoverPage />} />
         {/* La pantalla se llamaba /bienvenida antes de mostrar la
             jornada. Se conserva la redirección para no romper enlaces
             ni marcadores que alguien tuviera guardados. */}

@@ -25,6 +25,8 @@ const NODE_SERVICES = [
   'services/face-service',
   'services/access-service',
   'services/shift-service',
+  'services/logbook-service',
+  'services/mcp-server',
 ];
 
 let failures = 0;
@@ -157,6 +159,45 @@ step(
   'python -m compileall -q app scripts',
   join(process.cwd(), 'services', 'vision-service'),
 );
+
+// ── 6. Voice Service ──────────────────────────────────────────────
+//
+// Aqui SI se ejecutan las pruebas, a diferencia del Vision Service.
+// La razon es que se pueden: `app/services/citas.py` no depende de
+// nada fuera de la biblioteca estandar, asi que corren sin instalar
+// fastapi, ni httpx, ni pytest. Comprueban la unica garantia de este
+// servicio que no depende de un tercero: que una incidencia cuya cita
+// no esta en la transcripcion queda MARCADA.
+section('6. services/voice-service');
+{
+  const cwd = join(process.cwd(), 'services', 'voice-service');
+  step('Sintaxis de Python', 'python -m compileall -q app tests', cwd);
+
+  // Los tests de `citas.py` no dependen de nada fuera de la biblioteca
+  // estándar y corren siempre. Los del reintento SI necesitan httpx,
+  // porque el módulo que prueban lo importa para distinguir los
+  // errores de transporte por su tipo.
+  //
+  // Cuando falta, se ejecutan los que se pueda y se DICE cuáles no,
+  // en lugar de callarlo o de dar por bueno un "sin tests". En el CI
+  // de GitHub sí se instala, así que allí corren todos.
+  const conHttpx = run('python -c "import httpx"', cwd).ok;
+
+  step(
+    conHttpx ? 'Tests' : 'Tests (solo los que no necesitan httpx)',
+    conHttpx
+      ? 'python -m unittest discover -s tests -q'
+      : 'python -m unittest discover -s tests -q -p "test_citas*.py"',
+    cwd,
+  );
+
+  if (!conHttpx) {
+    console.log(
+      '[90m      httpx no está instalado: los tests del reintento se ' +
+        'ejecutan en el CI y en el contenedor.[0m',
+    );
+  }
+}
 
 // ── Resumen ───────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(52)}`);

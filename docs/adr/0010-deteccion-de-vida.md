@@ -1,6 +1,13 @@
 # ADR 0010 — Detección de vida pasiva, y por qué no deniega por defecto
 
-**Estado:** aceptada · 2026-09-13
+**Estado:** aceptada · 2026-09-13 · **la señal elegida quedó refutada**
+el 2026-09-13, ver «Actualización» al final
+
+> **Lee primero la actualización del final.** La decisión de estructura
+> —medir en el Vision Service, decidir en el Access Service, tres modos,
+> y no denegar por defecto— sigue en pie y demostrada. La **señal**
+> concreta que este ADR eligió, no: se midió contra un ataque real y
+> apunta al revés.
 
 ## Contexto
 
@@ -174,3 +181,66 @@ En este orden:
    impresas y pantallas, capturadas con la misma cámara del despliegue.
 3. Medir APCER y BPCER con esos datos y fijar los umbrales con ellos.
 4. Solo entonces, y por zona, no globalmente.
+
+
+---
+
+## Actualización · 2026-09-13 · la señal no funciona
+
+Se midió con un ataque real —una cara y una foto de esa cara en la
+pantalla de un móvil, misma webcam, seguidas— y **las dos entraron**.
+
+| | detalle fino | pico periódico |
+|---|---|---|
+| Cara real (3 frames) | 0.382 – 0.443 | **24.8 – 43.6** |
+| Móvil (4 frames) | 0.357 – 0.442 | **23.7 – 28.9** |
+
+El `pattern_peak` existe para delatar la rejilla de una pantalla y marcó
+**más alto con la cara real**. El `detail_ratio` no distingue nada.
+
+### Por qué, y por qué no es un problema de umbral
+
+El apartado «POR QUE SOBRE EL RECORTE ALINEADO» de este ADR era la
+equivocación. Medir sobre el recorte de 112x112 normaliza la distancia a
+la cámara, que era el objetivo, pero **destruye justo lo que se quería
+medir**: entre el sensor y esa medida hay dos reducciones sin filtro
+antialias —el terminal manda 640 px de ancho, y `norm_crop` remuestrea a
+112 con un `warpAffine` bilineal—. Una rejilla de píxeles no sobrevive a
+eso: se pierde, o se pliega por aliasing a una frecuencia arbitraria.
+
+Lo que `pattern_peak` mide de hecho, siendo `max/mediana` de la banda
+alta, es **si la banda alta tiene estructura destacada**. Una cara real
+capturada de frente la tiene —pelo, bordes, textura de piel—; una foto
+en una pantalla llega más suave, con la banda alta plana. De ahí el
+signo invertido, que no es casualidad ni ruido.
+
+La tabla de degradaciones sintéticas de más arriba reaccionaba porque la
+rejilla se aplicaba **píxel a píxel sobre la imagen ya reducida**, que
+es una cosa que no le pasa a ninguna fotografía de ninguna pantalla.
+
+### Qué se conserva
+
+Todo lo que no es la señal: la separación medida/política, los tres
+modos, el defecto `SOFT` —que es lo único que ha evitado que este fallo
+dejara gente en la calle—, que un frame sospechoso no acumule voto, y
+los 4.7 ms. Sustituir la señal es cambiar `liveness.py` y los umbrales.
+
+### Qué NO hacer
+
+No invertir el umbral. Los rangos se solapan (24.8–43.6 frente a
+23.7–28.9) y salen de siete frames de una sesión: elegir un corte ahí es
+numerología, no medida.
+
+### Consecuencia para las dos alternativas que quedan
+
+Las dos siguen siendo las de este ADR —un modelo entrenado tipo
+MiniFASNet, o el reto activo—, con una condición nueva que se aplica a
+cualquier vía pasiva: **la señal no puede medirse sobre el recorte de
+112**, y probablemente tampoco sobre el frame de 640 que el terminal
+envía hoy. Eso convierte «cambiar `liveness.py`» en «cambiar también qué
+imagen llega hasta ahí», que es una decisión de más calado.
+
+`scripts/capture-attack-set.mjs` graba el conjunto con el que medirlo, y
+guarda de cada disparo tanto lo que el terminal envía como el frame
+nativo, precisamente para poder responder a esa pregunta sin repetir la
+sesión.

@@ -19,6 +19,14 @@ export interface ShiftSummary {
   endedAt: Date | null;
   workedSeconds: number;
   breakSeconds: number;
+  /**
+   * Sede de la jornada abierta. Nulo cuando no hay ninguna.
+   *
+   * Viaja ademas del nombre porque quien firma un parte de relevo
+   * tiene que decir a que sede corresponde, y el frontend no lo sabe
+   * por ningun otro camino: el terminal conoce su puerta, no su sede.
+   */
+  siteId: string | null;
   siteName: string | null;
 }
 
@@ -47,6 +55,7 @@ export class ShiftsQuery {
         endedAt: null,
         workedSeconds: 0,
         breakSeconds: 0,
+        siteId: null,
         siteName: null,
       };
     }
@@ -68,6 +77,7 @@ export class ShiftsQuery {
         (day.state === 'EN_DESCANSO' || day.state === 'EN_PAUSA'
           ? inProgress
           : 0),
+      siteId: day.siteId,
       siteName: day.siteName,
     };
   }

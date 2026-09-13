@@ -4,7 +4,9 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   AccessServiceClient,
   FaceServiceClient,
+  LogbookServiceClient,
   ShiftServiceClient,
+  VoiceServiceClient,
 } from '../proxy/service-clients';
 
 @ApiTags('health')
@@ -14,6 +16,8 @@ export class HealthController {
     private readonly faces: FaceServiceClient,
     private readonly access: AccessServiceClient,
     private readonly shifts: ShiftServiceClient,
+    private readonly voice: VoiceServiceClient,
+    private readonly logbook: LogbookServiceClient,
   ) {}
 
   /**
@@ -25,23 +29,31 @@ export class HealthController {
   @Get()
   @ApiOperation({ summary: 'Estado de todos los servicios' })
   async check() {
-    const [face, access, shift] = await Promise.allSettled([
+    const [face, access, shift, voice, logbook] = await Promise.allSettled([
       this.faces.health(),
       this.access.health(),
       this.shifts.health(),
+      this.voice.health(),
+      this.logbook.health(),
     ]);
 
     const unreachable = { status: 'unreachable' };
     const value = (result: PromiseSettledResult<unknown>) =>
       result.status === 'fulfilled' ? result.value : unreachable;
 
-    // El Shift Service NO entra en el estado general.
+    // Tres servicios NO entran en el estado general, y es la misma
+    // razón en los tres: ninguno puede dejar a nadie fuera de un
+    // edificio.
     //
-    // Es una proyección: si se cae, las horas dejan de actualizarse
-    // pero las puertas siguen abriéndose y los eventos esperan en la
-    // outbox. Marcar el sistema entero como degradado por eso haría
-    // que una alerta de nóminas pareciera una avería de seguridad, y
-    // acabaría enseñando a ignorarla.
+    // El Shift Service es una proyección: si se cae, las horas dejan
+    // de actualizarse pero las puertas siguen abriéndose y los eventos
+    // esperan en la outbox. El Voice Service y el Logbook Service
+    // sirven para dictar y firmar partes de relevo, que es trabajo de
+    // oficina, no de cerradura.
+    //
+    // Marcar el sistema entero como degradado por cualquiera de ellos
+    // haría que una alerta de nóminas o de bitácora pareciera una
+    // avería de seguridad, y acabaría enseñando a ignorarla.
     const healthy =
       face.status === 'fulfilled' && access.status === 'fulfilled';
 
@@ -52,6 +64,8 @@ export class HealthController {
         faceService: value(face),
         accessService: value(access),
         shiftService: value(shift),
+        voiceService: value(voice),
+        logbookService: value(logbook),
       },
       timestamp: new Date().toISOString(),
     };
