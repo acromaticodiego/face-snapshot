@@ -489,13 +489,30 @@ Medias: detalle 0.403 (real) frente a 0.407 (móvil). Pico **34.1**
 rechazaría antes una cara real. Esto no se calibra: se retira o se
 sustituye.
 
-**Por qué falla, probablemente.** Una pantalla de móvil moderna, a la
-distancia de uso y con una webcam de 720p, no produce muaré: la rejilla
-de píxeles queda por debajo del poder de resolución de la cámara. Y la
-pantalla muestra una imagen de buena calidad, así que tampoco pierde
-detalle fino. Las degradaciones sintéticas del ADR 0010 —rejilla
-aplicada píxel a píxel— **no se parecen a un ataque real**, y la
-advertencia que el propio ADR llevaba escrita era correcta.
+**Por qué falla, y es estructural, no mala suerte.** La señal se mide
+sobre el recorte alineado de 112x112, y entre el sensor y ese recorte
+hay **dos reducciones sin filtro antialias**: el terminal manda 640 px
+de ancho (`useCamera.captureFrame`, 640 y calidad 0.75) y `norm_crop`
+remuestrea a 112 con un `warpAffine` bilineal. Una rejilla de píxeles no
+sobrevive a eso: se pierde, o se pliega por aliasing a una frecuencia
+cualquiera. A eso se suma que una pantalla moderna a la distancia de uso
+ya está en el límite de lo que resuelve una webcam de 720p.
+
+Y `pattern_peak`, siendo `max/mediana` de la banda alta, mide de hecho
+**si la banda alta tiene estructura destacada**, no si hay periodicidad.
+Una cara real de frente la tiene —pelo, bordes, textura de piel—; una
+foto en pantalla llega más suave. Por eso el signo sale invertido de
+forma consistente, y no por ruido.
+
+Las degradaciones sintéticas del ADR 0010 reaccionaban porque la rejilla
+se aplicaba píxel a píxel **sobre la imagen ya reducida**, que es algo
+que no le pasa a ninguna foto de ninguna pantalla.
+
+**Consecuencia para lo que venga:** cualquier señal pasiva que dependa
+de la textura **no puede medirse sobre el recorte de 112**, y
+probablemente tampoco sobre el frame de 640 que el terminal envía hoy.
+Sustituir la señal ya no es solo cambiar `liveness.py`: es decidir
+también qué imagen llega hasta ahí.
 
 **QUE HACER, y qué NO hacer:**
 
@@ -509,10 +526,30 @@ advertencia que el propio ADR llevaba escrita era correcta.
    en pie, y ahora hay con qué medirlas: un modelo entrenado
    (MiniFASNet), o el reto activo (parpadear), que es el único cuya
    eficacia se puede demostrar.
-4. **Hay fuente de ataque disponible.** El usuario tiene su cara
-   enrolada y un móvil: montar un conjunto de 20 capturas de cada clase
-   con esta misma webcam es cuestión de minutos, y sin eso no se puede
-   evaluar ninguna alternativa.
+4. **Ya hay herramienta para reunir el conjunto**, que era lo que
+   faltaba:
+
+   ```bash
+   node scripts/capture-attack-set.mjs      # abre http://localhost:5174
+   ```
+
+   Abre una página, usa la misma webcam y **los mismos parámetros de
+   captura que el terminal** —copiados de `useCamera.ts`, porque un
+   conjunto grabado por otra ruta mide una cámara que este sistema no
+   usa—, y guarda las dos clases en `datasets/liveness/`, que el
+   `.gitignore` excluye entero: son rostros reales y el script se niega
+   a arrancar si git no lo confirma.
+
+   De cada disparo guarda **dos variantes**: `terminal` (640 px, calidad
+   0.75, lo único que el sistema ve hoy) y `nativo` (el frame completo a
+   0.95). La segunda existe por el hallazgo de arriba: si la señal
+   sustituta necesita más píxeles, habría que repetir la sesión entera,
+   y el tiempo de alguien posando delante de una cámara es el recurso
+   caro de todo esto.
+
+   Lo que **todavía no existe** es el script que mida el conjunto una
+   vez grabado —pasar cada imagen por el Vision Service y sacar APCER y
+   BPCER—. Va con el paso 2, no con la captura.
 
 **Lo que esto NO invalida.** El andamiaje funciona y está probado: la
 evidencia viaja del Vision Service a la decisión, `HARD` deniega con

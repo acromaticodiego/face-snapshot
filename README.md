@@ -896,19 +896,56 @@ medido su tasa de falso rechazo contra ataques reales, y denegar el paso
 a una persona real con un número sin calibrar es peor que el problema
 que resuelve.
 
-**Lo que NO se pudo demostrar.** Que detenga una foto en un móvil. Para
-eso hace falta un conjunto de ataques reales —fotos impresas, pantallas,
-máscaras— y medir APCER y BPCER; este proyecto no lo tiene. Se intentó
-con un ataque sintético y el intento dejó un hallazgo propio: **el
-detector deja de encontrar la cara antes de que la señal reaccione**. Un
-ataque de pantalla realista no se fabrica degradando una imagen, hay que
-fotografiar una pantalla.
+**Ya está medido con un ataque real, y no funciona.** El 2026-09-13 se
+probaron, con la misma webcam y seguidas, una cara real y una foto de
+esa cara en la pantalla de un móvil. **Las dos entraron, y las dos
+señales apuntan al revés:**
 
-Así que la afirmación honesta sigue siendo la de antes, con un matiz:
-**el sistema no es apto para control de acceso real**, ahora porque su
-defensa contra suplantación no está validada en lugar de no existir. El
-[ADR 0010](docs/adr/0010-deteccion-de-vida.md) detalla qué haría falta
-para encender el modo que sí deniega, y en qué orden.
+| | detalle fino | pico periódico |
+|---|---|---|
+| Cara real (3 frames) | 0.382 – 0.443 | **24.8 – 43.6** |
+| Móvil (4 frames) | 0.357 – 0.442 | **23.7 – 28.9** |
+
+El pico periódico existe precisamente para delatar la rejilla de una
+pantalla, y marcó **más alto con la cara real**. El detalle fino da
+prácticamente lo mismo en los dos casos. **Esto no es un problema de
+umbral**: cualquiera que atrapara el móvil rechazaría antes una cara
+real. No se calibra, se sustituye.
+
+**Por qué falla, y es estructural.** La señal se mide sobre el recorte
+alineado de 112x112, y para llegar a él la imagen pasa por dos
+reducciones sin filtro antialias: el terminal manda 640 px de ancho, y
+`norm_crop` remuestrea a 112 con un `warpAffine` bilineal. La rejilla de
+una pantalla no sobrevive a eso —se pierde o se pliega por aliasing a
+una frecuencia cualquiera—, así que `pattern_peak` no está midiendo
+periodicidad: está midiendo si la banda alta tiene estructura marcada, y
+una cara real directa tiene más que una pantalla. De ahí el signo
+invertido. **Cualquier señal sustituta que dependa de la textura tendrá
+que medirse antes de esas reducciones.**
+
+Antes se había intentado fabricar el ataque degradando una imagen, y
+aquel intento dejó otro hallazgo que sigue en pie: **el detector deja de
+encontrar la cara antes de que la señal reaccione**. Un ataque de
+pantalla realista no se fabrica, hay que fotografiar una pantalla.
+
+**Cómo reunir el conjunto con el que medir.** Hay una herramienta para
+grabarlo por el mismo camino que captura el terminal:
+
+```bash
+node scripts/capture-attack-set.mjs      # abre http://localhost:5174
+```
+
+Guarda las dos clases en `datasets/liveness/` —fuera del repositorio,
+son rostros reales— con dos variantes de cada disparo: lo que el
+terminal envía hoy, y el frame nativo por si una señal futura necesita
+más píxeles. Sin ese conjunto no se puede evaluar ninguna alternativa.
+
+Así que la afirmación honesta es más dura que antes: **el sistema no es
+apto para control de acceso real**, y su defensa contra suplantación no
+solo está sin validar, sino medida y fallando. El
+[ADR 0010](docs/adr/0010-deteccion-de-vida.md) detalla las dos vías que
+quedan —un modelo entrenado, o el reto activo— y qué haría falta para
+encender el modo que sí deniega.
 
 #### 2. Sin revocación de tokens
 
@@ -1185,6 +1222,7 @@ lo sobrescribe.
 ```bash
 node scripts/ci-local.mjs        # reproduce el CI completo en local
 node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
+node scripts/capture-attack-set.mjs   # graba el conjunto de ataque (ver limitación 1)
 ```
 
 ### Qué se prueba, y por qué eso
