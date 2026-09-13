@@ -255,10 +255,12 @@ fallos**:
    defecto, el ataque sintético más fuerte que el detector tolera **no
    se detecta**.
 
-   **CONFIRMADO EL 2026-09-13:** una foto en la pantalla de un móvil
-   entró sin levantar ni una sospecha. Medido: pico 14.7 frente a 14.0
-   de una cara real. La señal no separa. Detalle completo más abajo, en
-   «PRIMER ATAQUE REAL MEDIDO».
+   **MEDIDO EL 2026-09-13, y es peor que «no separa»: las señales
+   apuntan AL REVES.** Con una cara real el pico periódico llegó a 43.6;
+   con una foto en la pantalla de un móvil nunca pasó de 28.9, cuando
+   ese número existe precisamente para delatar pantallas. Ningún umbral
+   sirve. Detalle completo más abajo, en «LA DETECCION DE VIDA NO
+   FUNCIONA».
 
    El sistema sigue **sin ser apto para control de acceso real**, ahora
    porque su defensa no está validada en lugar de no existir. Lo que
@@ -459,54 +461,65 @@ lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
   (`quien_esta_dentro`, `horas_trabajadas`, `novedades_de_turno`)
 - Las claves de Deepgram y Gemini están en el `.env` del usuario
 
-### PRIMER ATAQUE REAL MEDIDO — la detección de vida NO funciona
+### LA DETECCION DE VIDA NO FUNCIONA — medido con datos reales
 
-**2026-09-13.** El usuario probó con una foto de su propia cara en la
-pantalla del móvil. **Le dejó entrar**, y esto es lo que hay que saber:
+**2026-09-13.** Se midieron dos pruebas consecutivas con la misma webcam
+y la misma persona: primero su cara real, después una foto de su cara en
+la pantalla del móvil. Las dos entraron. Estos son los números que midió
+el Vision Service, sacados de las trazas:
 
-| | valor |
-|---|---|
-| Detalle fino medido | **0.4708** |
-| Pico periódico medido | **14.7** |
-| Pico de una captura directa | 14.0 |
-| Umbrales por defecto | detalle < 0.25 · pico > 90 |
-| Sospechas registradas | **CERO** |
+| | detalle fino | pico periódico |
+|---|---|---|
+| **Cara real** (3 frames) | 0.3819 – 0.4431 | **24.8 – 43.6** |
+| **Móvil** (4 frames) | 0.3571 – 0.4417 | **23.7 – 28.9** |
+| Móvil, sesión anterior (3 frames) | 0.4503 – 0.4816 | 21.8 – 26.7 |
 
-El pico es la señal que existe para delatar la rejilla de una pantalla.
-Frente a una pantalla real marcó **14.7**, contra **14.0** de una cara
-de verdad. **No se movió.** No es que el umbral esté mal puesto: es que
-la señal no separa nada.
+Medias: detalle 0.403 (real) frente a 0.407 (móvil). Pico **34.1**
+(real) frente a **25.0** (móvil).
 
-Correlación que lo confirma: la medición es de las 09:58:41 y el
-`GRANTED` de «diego ossa» con similitud 0.756 es de las 09:58:43, dos
-segundos después.
+**LAS DOS SEÑALES APUNTAN AL REVES.**
 
-**Qué invalida esto.** Las mediciones sintéticas del ADR 0010 —donde
-una «pantalla» daba un pico de 149 frente a 14— describían una rejilla
-aplicada a nivel de píxel sobre la imagen. Una pantalla real fotografiada
-por una webcam a esta distancia **no produce esa rejilla**: el sensor
-promedia y el patrón desaparece. La advertencia del ADR («salen de UNA
-imagen y de degradaciones FABRICADAS») era correcta, y ahora está
-confirmada por los hechos.
+- El **pico periódico** existe para delatar la rejilla de una pantalla.
+  Marcó MAS ALTO con la cara real (hasta 43.6) que con el móvil (nunca
+  pasó de 28.9).
+- El **detalle fino** debía caer con una recaptura. Da prácticamente lo
+  mismo en ambos casos, y si acaso ligeramente más alto en el móvil.
 
-**Qué NO invalida.** El mecanismo funciona: la evidencia viaja, los
-modos hacen lo que dicen, cuesta 4.7 ms y `SOFT` no denegó, que es lo
-que evitó que este fallo dejara a nadie fuera. Lo que falla es la
-SEÑAL, no el andamiaje.
+**No es un problema de umbral.** Cualquier umbral que atrapara el móvil
+rechazaría antes una cara real. Esto no se calibra: se retira o se
+sustituye.
 
-**Qué hacer con esto, por orden:**
+**Por qué falla, probablemente.** Una pantalla de móvil moderna, a la
+distancia de uso y con una webcam de 720p, no produce muaré: la rejilla
+de píxeles queda por debajo del poder de resolución de la cámara. Y la
+pantalla muestra una imagen de buena calidad, así que tampoco pierde
+detalle fino. Las degradaciones sintéticas del ADR 0010 —rejilla
+aplicada píxel a píxel— **no se parecen a un ataque real**, y la
+advertencia que el propio ADR llevaba escrita era correcta.
 
-1. **No subir el umbral del pico.** Con 14.7 frente a 14.0 no hay
-   ningún umbral que separe: bajarlo lo suficiente para pillar la
-   pantalla rechazaría también las caras reales.
-2. **Recoger muestras ahora que hay una fuente de ataque disponible.**
-   El usuario tiene el móvil y su cara enrolada: 20 capturas de pantalla
-   y 20 directas, con la misma webcam, y con eso ya se puede medir si
-   ALGUNA señal separa.
-3. Si el análisis espectral no separa —que es lo que este dato
-   sugiere—, las dos vías que quedan están descritas en el ADR 0010:
-   un modelo entrenado (MiniFASNet) o el reto activo (parpadear), que
-   es el único que sí se puede demostrar.
+**QUE HACER, y qué NO hacer:**
+
+1. **NO tocar los umbrales.** Están anotados en `.env.example` como
+   provisionales y ahora se sabe que ninguno sirve.
+2. **NO poner `LIVENESS_MODE=HARD`.** Dejaría fuera a gente real antes
+   que a un atacante. El defecto `SOFT` es lo único que ha evitado que
+   este fallo tuviera consecuencias.
+3. **Decidir entre retirar la señal espectral o sustituirla.** Las dos
+   vías descritas en el [ADR 0010](adr/0010-deteccion-de-vida.md) siguen
+   en pie, y ahora hay con qué medirlas: un modelo entrenado
+   (MiniFASNet), o el reto activo (parpadear), que es el único cuya
+   eficacia se puede demostrar.
+4. **Hay fuente de ataque disponible.** El usuario tiene su cara
+   enrolada y un móvil: montar un conjunto de 20 capturas de cada clase
+   con esta misma webcam es cuestión de minutos, y sin eso no se puede
+   evaluar ninguna alternativa.
+
+**Lo que esto NO invalida.** El andamiaje funciona y está probado: la
+evidencia viaja del Vision Service a la decisión, `HARD` deniega con
+`LIVENESS_FAILED`, `SOFT` con la misma sospecha deja pasar, y cuesta
+4.7 ms. Sustituir la señal es cambiar el contenido de
+`app/recognition/liveness.py` y los umbrales; no hay que rehacer nada
+más.
 
 ### ~~Fase 6 — Anti-spoofing~~ · HECHA, con una advertencia grande
 
