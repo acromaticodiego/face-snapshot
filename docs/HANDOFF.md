@@ -459,6 +459,13 @@ cd services/shift-service && npx prisma migrate deploy
   dependencias, incluido el vision-service. Para tocar solo los
   servicios Node: `docker compose build a b c` y luego
   `docker compose up -d --no-deps a b c`.
+- **Esta máquina no sirve como banco de pruebas sin cuidado.** El mismo
+  binario dio 2.28 y 0.85 frames/s en la misma sesión, con la carga del
+  sistema pasando de 3.6 a 9.8. Si mides rendimiento: calienta primero
+  (con varios procesos hay que despertarlos a todos con ráfagas
+  concurrentes, o los fríos pagan su primera inferencia y falsean el
+  resultado), repite y usa la mediana, y compara configuraciones
+  **seguidas**, nunca contra un número de hace media hora.
 - Docker Desktop se cae solo en esta máquina de vez en cuando. Si algo
   deja de responder, compruébalo antes de buscar el fallo en el código.
 - La resolución de DNS de Docker Hub falla a ratos en esta máquina

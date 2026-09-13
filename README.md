@@ -1061,6 +1061,60 @@ dónde habría que sacarlo.
 > Son contenedores sin GPU en un portátil. Lo que vale es la
 > **proporción entre etapas**, no los valores absolutos.
 
+### El techo de capacidad, y por qué existe
+
+Lo primero que enseñó la observabilidad no fue una latencia, fue un
+**fallo en cascada esperando a ocurrir**.
+
+Los manejadores del Vision Service eran `async def` pero dentro
+llamaban al pipeline, que son cientos de milisegundos de CPU
+bloqueante. Eso ocupa el bucle de eventos entero, y con él se congela
+todo lo demás que el proceso tenga que atender:
+
+| `/health` del Vision Service | Antes | Después |
+|---|---|---|
+| En reposo | 1 ms | 1 ms |
+| Con frames en vuelo | **3077 ms** | **418 ms** |
+
+El `HEALTHCHECK` de Docker tiene un plazo de 5 s. Con suficientes
+frames encolados lo superaba, Docker marcaba el contenedor como enfermo
+y lo reiniciaba, perdiendo los modelos cargados. Carga → reinicio → más
+carga. Es la misma lección que dejó el `/health` del Shift Service con
+Redis caído: **una sonda nunca debe poder colgarse.**
+
+El arreglo es sacar la inferencia a un hilo con `run_in_threadpool`.
+
+### El candado sobre el detector hace el sistema más rápido, no más lento
+
+`ultralytics.predict()` guarda el lote y los resultados colgados del
+objeto del modelo, así que dos hilos entrando a la vez se pisan ese
+estado. El alineador y el embebedor no lo necesitan: van sobre
+onnxruntime, que sí es seguro entre hilos.
+
+Lo interesante es que serializar la detección **no cuesta rendimiento,
+lo gana**. Sin el candado, varias inferencias de torch compiten por los
+mismos núcleos y se estorban; con él, la detección de un frame corre a
+pleno rendimiento mientras la alineación y el embedding de otro —que
+sueltan el GIL— se solapan con ella.
+
+### Cuántos procesos
+
+`VISION_WORKERS` existe, y su valor por defecto es **uno**, medido. La
+intuición dice que varios procesos multiplicarían el rendimiento, pero
+en una máquina de 12 núcleos una sola inferencia de torch ya usa la
+mitad, y el segundo worker no dio nada distinguible del ruido a cambio
+de casi el doble de memoria. Repartir más fino es peor: con 4 workers
+de 3 hilos la latencia de una petición casi se dobla.
+
+> **Sobre las cifras de rendimiento de esta sección.** Se tomaron en un
+> portátil con Docker Desktop, y la máquina resultó ser un banco de
+> pruebas poco fiable: el mismo binario midió 2.28 frames/s al
+> principio de una sesión y 0.85 al final, sin cambiar nada. Lo que
+> aguanta es la comparación **hecha seguida**, con la máquina en el
+> mismo estado, y la del `/health`, que cambia de orden de magnitud. Si
+> vas a citar un número, vuelve a medirlo en la máquina donde vaya a
+> correr.
+
 ### Lo que no se traza
 
 Los bucles de fondo —el relay cada segundo, la espera del consumidor

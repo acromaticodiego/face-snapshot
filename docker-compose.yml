@@ -99,6 +99,17 @@ services:
       MIN_FACE_SIZE_PX: ${MIN_FACE_SIZE_PX:-80}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Procesos de inferencia. El defecto es UNO porque se midio:
+      # el segundo worker no da nada distinguible del ruido y cuesta
+      # casi el doble de memoria, ya que cada uno carga su propia
+      # copia de rostros.pt, de los landmarks y de ArcFace. Las
+      # cifras estan en el Dockerfile del servicio. No lo subas sin
+      # volver a medir en la maquina donde vaya a correr.
+      VISION_WORKERS: ${VISION_WORKERS:-1}
+      # Vacio a proposito: sin valor, lo decide torch (la mitad de los
+      # nucleos de la maquina). Solo hay que ponerle un numero si se
+      # suben los workers, para que no se peleen por los nucleos.
+      VISION_THREADS_PER_WORKER: ${VISION_THREADS_PER_WORKER:-}
       # ── Observabilidad ──────────────────────────────────────────
       # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
       # instrumentacion. Es el interruptor: el colector NO es una
