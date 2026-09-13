@@ -267,6 +267,98 @@ services:
         condition: service_started
     networks: [detector-net]
 
+  # ══════════════════════════════════════════════════════════════
+  #  OBSERVABILIDAD
+  #
+  #  Cuatro contenedores y un solo camino:
+  #
+  #      servicios ──OTLP──> collector ──> tempo      (trazas)
+  #                              └────────> prometheus (metricas)
+  #                                              └───> grafana
+  #
+  #  Ninguno de los cuatro es una dependencia de nadie. Si el colector
+  #  desaparece, los servicios descartan telemetria en silencio con una
+  #  cola acotada y las puertas siguen abriendose igual. Por eso
+  #  tampoco aparece en ningun `depends_on` de los servicios ni en
+  #  ningun `/health`: convertir una averia de telemetria en una averia
+  #  de control de acceso seria cambiar un problema pequeno por uno
+  #  grave.
+  # ══════════════════════════════════════════════════════════════
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    container_name: detector-otel-collector
+    restart: unless-stopped
+    command: ['--config=/etc/otel/config.yaml']
+    volumes:
+      - ./infrastructure/observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    expose:
+      - '4318'  # OTLP/HTTP, que es por donde entran los seis servicios
+      - '4317'  # OTLP/gRPC
+      - '8889'  # metricas para Prometheus
+      - '8888'  # sus propias metricas
+    depends_on:
+      - tempo
+    networks: [detector-net]
+
+  tempo:
+    image: grafana/tempo:3.0.3
+    container_name: detector-tempo
+    restart: unless-stopped
+    command: ['-config.file=/etc/tempo/tempo.yaml']
+    user: root
+    volumes:
+      - ./infrastructure/observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    expose:
+      - '3200'  # consulta, que es lo que usa Grafana
+      - '4317'  # OTLP/gRPC, solo desde el colector
+    networks: [detector-net]
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: detector-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      # Sin esto, los exemplars llegan y se tiran: es lo que permite
+      # saltar de un pico de latencia a la traza que lo causo.
+      - '--enable-feature=exemplar-storage'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infrastructure/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      # Solo en localhost: son metricas de operacion, no una pagina
+      # publica.
+      - '127.0.0.1:${PROMETHEUS_PORT:-9090}:9090'
+    networks: [detector-net]
+
+  grafana:
+    image: grafana/grafana:13.2.1
+    container_name: detector-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Registrarse uno mismo en un panel de operacion interno no tiene
+      # ningun sentido, y deja la puerta abierta.
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_FEATURE_TOGGLES_ENABLE: traceToMetrics
+    volumes:
+      - ./infrastructure/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # 3001 porque el 3000 lo ocupa el Gateway en el host.
+      - '127.0.0.1:${GRAFANA_PORT:-3001}:3000'
+    depends_on:
+      - prometheus
+      - tempo
+    networks: [detector-net]
+
   # ── Interfaz ────────────────────────────────────────────────────
   frontend:
     build:
@@ -288,6 +380,12 @@ volumes:
     name: detector-postgres-data
   redis-data:
     name: detector-redis-data
+  tempo-data:
+    name: detector-tempo-data
+  prometheus-data:
+    name: detector-prometheus-data
+  grafana-data:
+    name: detector-grafana-data
 
 networks:
   detector-net:

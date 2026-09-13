@@ -1,0 +1,44 @@
+# ══════════════════════════════════════════════════════════════════
+#  Fuentes de datos de Grafana, aprovisionadas.
+#
+#  Se declaran aqui y no se pinchan a mano por el mismo motivo por el
+#  que las migraciones estan versionadas: un panel que solo existe en
+#  el disco de una maquina no existe.
+# ══════════════════════════════════════════════════════════════════
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      # Los exemplars son lo que convierte un pico en el grafico en una
+      # traza concreta: se pincha el punto y se abre el recorrido que
+      # lo produjo. Sin esto, un percentil 99 alto es un numero del que
+      # no se puede tirar.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+          urlDisplayLabel: Ver la traza
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # El salto de vuelta: desde un span, las metricas de ese servicio.
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: '-2m'
+        spanEndTimeShift: '2m'
+        tags:
+          - key: service.name
+            value: service_name
+      nodeGraph:
+        enabled: true

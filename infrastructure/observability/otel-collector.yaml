@@ -1,0 +1,130 @@
+# ══════════════════════════════════════════════════════════════════
+#  OpenTelemetry Collector
+#
+#  POR QUE HAY UN COLECTOR EN MEDIO
+#  ────────────────────────────────
+#  Los seis servicios podrian exportar directamente a Tempo. No lo
+#  hacen por dos razones:
+#
+#   1. Cambiar de backend no debe tocar seis servicios. Aqui el destino
+#      es una linea de este archivo; alli serian seis despliegues.
+#   2. Node y Python configuran igual: un endpoint OTLP y nada mas. Sin
+#      colector, cada ecosistema arrastraria el exportador especifico
+#      del backend de turno.
+#
+#  Y una tercera que solo se ve al usarlo: el conector `spanmetrics`
+#  fabrica las metricas de latencia y error a partir de las propias
+#  trazas. Sin el, habria que instrumentar a mano en cada servicio las
+#  mismas metricas que las trazas ya contienen, y acabarian sin
+#  cuadrar entre si.
+#
+#  ESTE COLECTOR NO PUEDE TUMBAR UNA PUERTA
+#  ────────────────────────────────────────
+#  Si deja de responder, los exportadores de los servicios descartan en
+#  silencio con una cola acotada y el reconocimiento sigue igual. Por
+#  eso tampoco aparece en ningun `/health`: una sonda que dependa de la
+#  observabilidad convierte una averia de telemetria en una averia de
+#  servicio.
+# ══════════════════════════════════════════════════════════════════
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Agrupar en lotes es lo que evita una peticion de red por span.
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+  # Tope duro de memoria. Un colector que se come la RAM de la maquina
+  # se lleva por delante a los servicios que observa, que es
+  # exactamente lo contrario de su trabajo.
+  memory_limiter:
+    check_interval: 2s
+    limit_mib: 384
+    spike_limit_mib: 96
+
+connectors:
+  # Metricas RED (peticiones, errores, duracion) derivadas de las
+  # trazas. Las dimensiones elegidas son las que se miran cuando algo
+  # va mal: quien, que ruta, y si fallo.
+  span_metrics:
+    histogram:
+      explicit:
+        buckets:
+          [2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
+    dimensions:
+      - name: http.route
+      - name: http.request.method
+      - name: http.response.status_code
+    exemplars:
+      enabled: true
+    metrics_flush_interval: 15s
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    # La cola acotada es deliberada: ante un atasco se pierde
+    # telemetria, no memoria.
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+
+  # Prometheus raspa este puerto. El colector NO empuja: que el
+  # recolector decida cuando preguntar es lo que hace que un colector
+  # reiniciado no genere un pico de escrituras.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Sin esto, cada reinicio del colector reinicia los contadores y
+    # `rate()` ve caidas a cero que no ocurrieron.
+    enable_open_metrics: true
+    # Sube estos atributos de recurso a etiquetas de la metrica. Sin
+    # ellos, las series de los seis servicios se veerian iguales y no
+    # habria forma de separar por servicio. Se listan de forma
+    # EXPLICITA en lugar de subirlos todos: un atributo de recurso con
+    # muchos valores distintos —un identificador de instancia, por
+    # ejemplo— multiplica las series y es la forma clasica de reventar
+    # un Prometheus sin querer.
+    resource_constant_labels:
+      included:
+        - service.name
+        - service.version
+        - deployment.environment.name
+
+service:
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      # Sus PROPIAS metricas. Por defecto solo escucha en localhost, y
+      # desde otro contenedor eso es inalcanzable: sin esta linea,
+      # Prometheus no puede saber si el colector esta descartando
+      # telemetria, que es justo lo que hay que vigilar de un colector.
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      # Las trazas van a Tempo Y alimentan las metricas derivadas.
+      exporters: [otlp_grpc/tempo, span_metrics]
+
+    metrics:
+      # Dos fuentes: lo que los servicios miden por su cuenta (las
+      # metricas de dominio: decisiones por motivo, retraso de la
+      # outbox) y lo que se deduce de las trazas.
+      receivers: [otlp, span_metrics]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
