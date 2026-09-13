@@ -16,9 +16,11 @@ from __future__ import annotations
 import time
 
 import numpy as np
+from opentelemetry import trace
 
 from app.core.config import Settings
 from app.core.logging import get_logger
+from app.core.telemetry import tracer
 from app.detection.base import FaceDetector
 from app.recognition import quality
 from app.recognition.aligner import FaceAligner
@@ -117,13 +119,28 @@ class FacePipeline:
         )
 
     def analyze(self, image_bgr: np.ndarray) -> VisionAnalyzeResponse:
-        """Detección + alineación + embedding para cada rostro."""
+        """
+        Detección + alineación + embedding para cada rostro.
+
+        CADA ETAPA ES UN SPAN, Y NO ES DECORACION
+        ─────────────────────────────────────────
+        Hasta la Fase 4 este método solo sabía decir cuánto tardaba
+        entero. Eso no responde la pregunta que importa —si el coste
+        está en el detector, en la alineación o en el embedding— y esa
+        pregunta hace falta para saber cuánto margen hay para gastar en
+        una captura mejor, que es lo que de verdad arreglaría el margen
+        estrecho del umbral.
+        """
         started = time.perf_counter()
         h, w = image_bgr.shape[:2]
 
-        detections = self._detector.detect(image_bgr)[
-            : self._settings.max_faces_per_frame
-        ]
+        with tracer.start_as_current_span("vision.detect") as span:
+            detections = self._detector.detect(image_bgr)[
+                : self._settings.max_faces_per_frame
+            ]
+            span.set_attribute("vision.image.width", w)
+            span.set_attribute("vision.image.height", h)
+            span.set_attribute("vision.faces.detected", len(detections))
 
         faces: list[DetectedFace] = []
         rejected = 0
@@ -141,12 +158,18 @@ class FacePipeline:
                 continue
 
             try:
-                aligned = self._aligner.align(
-                    image_bgr,
-                    (det.x1, det.y1, det.x2, det.y2),
-                    keypoints=det.keypoints if self._detector.provides_keypoints else None,
-                )
-                embedding = self._embedder.embed(aligned)
+                # La alineación incluye los landmarks: es el paso que el
+                # ADR 0002 documenta como obligatorio, y conviene poder
+                # ver lo que cuesta por separado del embedding.
+                with tracer.start_as_current_span("vision.align"):
+                    aligned = self._aligner.align(
+                        image_bgr,
+                        (det.x1, det.y1, det.x2, det.y2),
+                        keypoints=det.keypoints if self._detector.provides_keypoints else None,
+                    )
+                with tracer.start_as_current_span("vision.embed") as span:
+                    embedding = self._embedder.embed(aligned)
+                    span.set_attribute("vision.embedding.dim", len(embedding))
             except Exception as exc:  # noqa: BLE001
                 # Un rostro que falla no debe tumbar el frame completo.
                 logger.warning("fallo_al_embeber_rostro", error=str(exc))
@@ -168,6 +191,14 @@ class FacePipeline:
             )
 
         elapsed = round((time.perf_counter() - started) * 1000, 2)
+
+        # Resumen en el span de la petición. NUNCA el embedding ni nada
+        # derivado de la imagen: una traza es un registro más, y la
+        # política de privacidad del sistema no cambia porque el destino
+        # se llame Tempo.
+        span_actual = trace.get_current_span()
+        span_actual.set_attribute("vision.faces.accepted", len(faces))
+        span_actual.set_attribute("vision.faces.rejected", rejected)
 
         # Solo metadatos: nunca se registran imágenes ni embeddings.
         logger.info(

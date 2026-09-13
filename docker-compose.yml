@@ -99,6 +99,15 @@ services:
       MIN_FACE_SIZE_PX: ${MIN_FACE_SIZE_PX:-80}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     volumes:
       # El modelo se monta en SOLO LECTURA: el contenedor no puede
       # modificarlo ni sobrescribirlo.
@@ -124,6 +133,15 @@ services:
       EMBEDDING_DIM: '512'
       RECOGNITION_THRESHOLD: ${RECOGNITION_THRESHOLD:-0.38}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3001'
     depends_on:
@@ -164,6 +182,15 @@ services:
       OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
       OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
       OUTBOX_RETENTION_HOURS: ${OUTBOX_RETENTION_HOURS:-168}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3002'
     depends_on:
@@ -192,6 +219,15 @@ services:
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-admin@detector.local}
       ADMIN_BOOTSTRAP_NAME: ${ADMIN_BOOTSTRAP_NAME:-Administrador}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?Define ADMIN_BOOTSTRAP_PASSWORD en .env}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3003'
     depends_on:
@@ -224,6 +260,15 @@ services:
       # sin fichar, no un turno.
       SHIFT_MAX_HOURS: ${SHIFT_MAX_HOURS:-16}
       RECONCILER_INTERVAL_MS: ${RECONCILER_INTERVAL_MS:-60000}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3004'
     depends_on:
@@ -253,6 +298,15 @@ services:
       ADMIN_AUTH_ENABLED: ${ADMIN_AUTH_ENABLED:-true}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     # El ÚNICO servicio publicado hacia fuera.
     ports:
       - '${GATEWAY_PORT:-3000}:3000'
