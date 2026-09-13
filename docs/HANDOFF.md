@@ -699,9 +699,31 @@ también qué imagen llega hasta ahí.
    y el tiempo de alguien posando delante de una cámara es el recurso
    caro de todo esto.
 
-   Lo que **todavía no existe** es el script que mida el conjunto una
-   vez grabado —pasar cada imagen por el Vision Service y sacar APCER y
-   BPCER—. Va con el paso 2, no con la captura.
+   **Y el medidor también está**, que era la otra mitad:
+
+   ```bash
+   node scripts/measure-liveness.mjs
+   ```
+
+   Pasa cada imagen por el Vision Service —reutilizando los modelos ya
+   cargados— y responde UNA pregunta: si existe algún umbral sobre las
+   señales actuales que separe las dos clases. Mide las **dos
+   variantes**, `terminal` y `nativo`, porque si separase solo en la
+   nativa la conclusión no sería «la señal sirve» sino «habría que
+   cambiar lo que el terminal envía», y eso tiene un coste que hay que
+   conocer antes de decidirlo.
+
+   Devuelve el veredicto en el código de salida: `0` separa, `1` no
+   separa, `2` no se pudo medir.
+
+   **Lee esto antes de fiarte del resultado.** La primera versión
+   declaraba «la señal separa» cuando el detector no había encontrado
+   NINGUNA cara: no hallaba indicios de lo contrario y lo tomaba por
+   bueno. Un medidor que declara éxito habiendo medido nada es peor que
+   uno que falla, porque el número que da no es optimista, es inventado.
+   Está arreglado y hay 9 tests que lo fijan —verificados rompiéndolos,
+   las cuatro mutaciones caen—, pero si tocas ese script, esa es la
+   trampa.
 
 **Lo que esto NO invalida.** El andamiaje funciona y está probado: la
 evidencia viaja del Vision Service a la decisión, `HARD` deniega con

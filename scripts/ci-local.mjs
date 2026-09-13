@@ -154,11 +154,24 @@ section('4. frontend');
 
 // ── 5. Vision Service ─────────────────────────────────────────────
 section('5. services/vision-service');
-step(
-  'Sintaxis de Python',
-  'python -m compileall -q app scripts',
-  join(process.cwd(), 'services', 'vision-service'),
-);
+{
+  const cwd = join(process.cwd(), 'services', 'vision-service');
+  step('Sintaxis de Python', 'python -m compileall -q app scripts', cwd);
+
+  // Solo `test_medir*`, y por una razón concreta: el resto de este
+  // directorio -la prueba de humo y la de calidad del reconocimiento-
+  // necesita los modelos cargados y una imagen real, así que vive en
+  // local y no puede correr aquí.
+  //
+  // El medidor de la detección de vida sí puede: su aritmética no toca
+  // ni red ni modelos. Y conviene que corra, porque su primera versión
+  // declaraba «la señal separa» habiendo medido CERO caras.
+  step(
+    'Tests del medidor de vida',
+    'python -m unittest discover -s tests -p "test_medir*.py" -q',
+    cwd,
+  );
+}
 
 // ── 6. Voice Service ──────────────────────────────────────────────
 //

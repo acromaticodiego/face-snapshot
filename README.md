@@ -942,6 +942,19 @@ son rostros reales— con dos variantes de cada disparo: lo que el
 terminal envía hoy, y el frame nativo por si una señal futura necesita
 más píxeles. Sin ese conjunto no se puede evaluar ninguna alternativa.
 
+Y después, la otra mitad:
+
+```bash
+node scripts/measure-liveness.mjs
+```
+
+Pasa cada imagen por el Vision Service y responde una sola pregunta:
+**si existe algún umbral que separe las dos clases**. Prueba todos los
+cortes posibles sobre los propios datos y da el mejor con su APCER y su
+BPCER; si ni siquiera ese separa, ningún umbral elegido a ciegas lo va
+a hacer. El veredicto sale en el código de salida: `0` separa, `1` no,
+`2` no se pudo medir.
+
 Así que la afirmación honesta es más dura que antes: **el sistema no es
 apto para control de acceso real**, y su defensa contra suplantación no
 solo está sin validar, sino medida y fallando. El
@@ -1468,6 +1481,7 @@ lo sobrescribe.
 node scripts/ci-local.mjs        # reproduce el CI completo en local
 node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
 node scripts/capture-attack-set.mjs   # graba el conjunto de ataque (ver limitación 1)
+node scripts/measure-liveness.mjs     # y responde si la señal separa
 ```
 
 ### Qué se prueba, y por qué eso
