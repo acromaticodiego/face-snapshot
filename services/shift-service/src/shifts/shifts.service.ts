@@ -5,8 +5,11 @@ import type { Prisma } from '@prisma/client';
 import type { AccessGrantedEvent } from '../consumer/access-event.parser';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  applyManualChange,
   applyPassage,
   businessDateOf,
+  type ManualAction,
+  type ManualRejection,
   type ShiftSnapshot,
   type ShiftState,
 } from './shift.machine';
@@ -159,5 +162,80 @@ export class ShiftsService {
       select: { at: true },
     });
     return last?.at ?? fallback;
+  }
+
+  /**
+   * Descanso declarado por la propia persona.
+   *
+   * Solo puede mover el estado dentro de la sede: empezar y terminar un
+   * descanso. Entrar y salir siguen siendo cosa del Access Service con
+   * una cara delante de una cámara; un botón que abriera jornada
+   * convertiría el control de acceso en un adorno.
+   *
+   * Devuelve el motivo del rechazo en lugar de lanzar, porque quien
+   * llama tiene que poder explicárselo a la persona: "ya estás de
+   * descanso" y "todavía no has entrado" son mensajes distintos.
+   */
+  async requestManualChange(params: {
+    personId: string;
+    change: ManualAction;
+    note?: string;
+    at?: Date;
+  }): Promise<{ ok: true } | { ok: false; reason: ManualRejection }> {
+    const at = params.at ?? new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const open = await tx.workDay.findFirst({
+        where: { personId: params.personId, endedAt: null },
+        orderBy: { startedAt: 'desc' },
+      });
+
+      const snapshot: ShiftSnapshot | null = open
+        ? {
+            state: open.state,
+            stateSince: open.stateSince,
+            lastSeenAt: await this.lastSeenAt(tx, open.id, open.stateSince),
+            workedSeconds: open.workedSeconds,
+            breakSeconds: open.breakSeconds,
+          }
+        : null;
+
+      const decision = applyManualChange(snapshot, params.change, at);
+
+      if (decision.action === 'REJECT') {
+        this.logger.debug(
+          `Cambio manual rechazado para ${params.personId}: ${decision.reason}`,
+        );
+        return { ok: false as const, reason: decision.reason };
+      }
+
+      await tx.workDay.update({
+        where: { id: open!.id },
+        data: {
+          state: decision.state,
+          stateSince: at,
+          workedSeconds: { increment: decision.workedDelta },
+          breakSeconds: { increment: decision.breakDelta },
+        },
+      });
+
+      // Sin `sourceEventId`: esta entrada no nace de ningún evento del
+      // bus. El origen queda marcado para que, al revisar una jornada
+      // rara, se distinga lo que declaró la persona de lo que dedujo el
+      // sistema de un paso por una puerta.
+      await tx.timelineEntry.create({
+        data: {
+          workDayId: open!.id,
+          personId: params.personId,
+          at,
+          fromState: snapshot!.state,
+          toState: decision.state,
+          origin: 'MANUAL',
+          note: params.note ?? null,
+        },
+      });
+
+      return { ok: true as const };
+    });
   }
 }

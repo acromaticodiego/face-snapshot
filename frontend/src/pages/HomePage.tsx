@@ -5,6 +5,9 @@ import {
   LayoutDashboard,
   LogOut,
   Pause,
+  Play,
+  Sandwich,
+  Toilet,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -17,7 +20,14 @@ import {
   VaultTitle,
   type Accent,
 } from '@/components/vault';
-import { api, ApiError, type ShiftState, type WorkDay } from '@/lib/api';
+import {
+  api,
+  ApiError,
+  type BreakNote,
+  type ShiftState,
+  type ShiftSummary,
+  type WorkDay,
+} from '@/lib/api';
 import { formatDuration, formatTime, greetingFor } from '@/lib/utils';
 
 interface HomeState {
@@ -26,6 +36,19 @@ interface HomeState {
   /** Si el acceso concedido fue una entrada o una salida. */
   passage?: 'IN' | 'OUT';
 }
+
+/**
+ * Descansos que se pueden declarar sin cruzar ningún lector.
+ *
+ * Ir al baño o bajar a por un café no pasan por ninguna puerta, y sin
+ * declararlos la jornada contaría como trabajado todo el rato que se
+ * pase dentro del edificio.
+ */
+const BREAKS: Array<{ note: BreakNote; label: string; icon: typeof Coffee }> = [
+  { note: 'DESCANSO', label: 'Descanso', icon: Coffee },
+  { note: 'ALMUERZO', label: 'Almuerzo', icon: Sandwich },
+  { note: 'BANO', label: 'Baño', icon: Toilet },
+];
 
 /** Cómo se presenta cada estado de turno. */
 const STATES: Record<
@@ -54,11 +77,10 @@ export function HomePage() {
   const location = useLocation();
   const state = (location.state ?? {}) as HomeState;
 
-  const [shift, setShift] = useState<Awaited<
-    ReturnType<typeof api.myShift>
-  > | null>(null);
+  const [shift, setShift] = useState<ShiftSummary | null>(null);
   const [today, setToday] = useState<WorkDay | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +125,32 @@ export function HomePage() {
   const handleExit = () => {
     sessionStorage.removeItem('accessToken');
     navigate('/', { replace: true });
+  };
+
+  /**
+   * Declara un descanso o el regreso.
+   *
+   * Tras el cambio se recarga la línea de tiempo: el estado lo devuelve
+   * la propia respuesta, pero la nueva entrada del día no, y verla
+   * aparecer es lo que confirma que quedó registrado.
+   */
+  const changeState = async (action: () => Promise<ShiftSummary>) => {
+    setChanging(true);
+    setError(null);
+    try {
+      setShift(await action());
+      const timeline = await api.myTimeline();
+      setToday(timeline.items[0] ?? null);
+    } catch (err) {
+      // El backend explica por qué no se pudo -"ya estabas en
+      // descanso", "estás fuera de la sede"- y ese mensaje es más útil
+      // que uno genérico, así que se muestra tal cual.
+      setError(
+        err instanceof ApiError ? err.message : 'No se pudo cambiar el estado',
+      );
+    } finally {
+      setChanging(false);
+    }
   };
 
   const presentation = shift ? STATES[shift.state] : null;
@@ -183,6 +231,55 @@ export function HomePage() {
                   />
                 ))}
               </ol>
+            </section>
+          )}
+
+          {/* ── Declarar un descanso ─────────────────────────── */}
+          {shift && shift.state !== 'FUERA' && (
+            <section className="mt-7 border-t border-white/8 pt-5">
+              {shift.state === 'EN_DESCANSO' ? (
+                <VaultButton
+                  tone="blue"
+                  className="w-full"
+                  loading={changing}
+                  onClick={() => void changeState(() => api.endBreak())}
+                  icon={<Play className="h-4 w-4" />}
+                >
+                  Volver al trabajo
+                </VaultButton>
+              ) : shift.state === 'EN_PAUSA' ? (
+                // Está fuera del edificio: su vuelta la registra la
+                // puerta. Un botón aquí sería fichar sin estar.
+                <p className="text-center text-xs text-white/35">
+                  Estás fuera de la sede. Vuelve a pasar por la cámara para
+                  reanudar tu jornada.
+                </p>
+              ) : (
+                <>
+                  <h2 className="mb-3 text-xs font-medium tracking-widest text-white/35 uppercase">
+                    Tomar un descanso
+                  </h2>
+                  <div className="grid grid-cols-3 gap-2">
+                    {BREAKS.map((option) => (
+                      <VaultButton
+                        key={option.note}
+                        tone="glass"
+                        size="sm"
+                        loading={changing}
+                        onClick={() =>
+                          void changeState(() => api.startBreak(option.note))
+                        }
+                        icon={<option.icon className="h-3.5 w-3.5" />}
+                      >
+                        {option.label}
+                      </VaultButton>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-center text-[11px] text-white/25">
+                    El tiempo de descanso no computa como jornada.
+                  </p>
+                </>
+              )}
             </section>
           )}
 
@@ -274,15 +371,27 @@ function Step({
           {'  '}
           {describe(entry)}
         </p>
-        {entry.accessPointName && (
-          <p className="text-xs text-white/35">{entry.accessPointName}</p>
-        )}
+        <p className="text-xs text-white/35">
+          {entry.origin === 'MANUAL'
+            ? 'Declarado por ti'
+            : entry.origin === 'SYSTEM'
+              ? 'Cerrado automáticamente'
+              : entry.accessPointName}
+        </p>
       </div>
     </li>
   );
 }
 
+const NOTES: Record<BreakNote, string> = {
+  DESCANSO: 'Descanso',
+  ALMUERZO: 'Almuerzo',
+  BANO: 'Baño',
+  OTRO: 'Pausa',
+};
+
 function describe(entry: WorkDay['entries'][number]): string {
+  if (entry.note) return NOTES[entry.note];
   if (entry.toState === 'EN_DESCANSO') return 'Descanso';
   if (entry.toState === 'EN_PAUSA') return 'Salida temporal';
   if (entry.toState === 'FUERA') return 'Fin de jornada';

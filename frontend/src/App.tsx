@@ -2,7 +2,6 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 
 import { RequireAdmin } from '@/components/RequireAdmin';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { AdminDashboardPage } from '@/pages/AdminDashboardPage';
 import { AdminFacesPage } from '@/pages/AdminFacesPage';
 import { AdminLoginPage } from '@/pages/AdminLoginPage';
@@ -12,7 +11,6 @@ import { HomePage } from '@/pages/HomePage';
 export default function App() {
   return (
     <BrowserRouter>
-      <ThemeToggle />
       <Routes>
         <Route path="/" element={<AuthPage />} />
         <Route path="/home" element={<HomePage />} />

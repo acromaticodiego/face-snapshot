@@ -316,6 +316,32 @@ export class ShiftServiceClient extends BaseServiceClient {
     }
   }
 
+  /**
+   * Descanso declarado por la persona.
+   *
+   * Es la unica escritura de este cliente, y solo mueve el estado
+   * DENTRO de la sede. Entrar y salir siguen siendo cosa del Access
+   * Service con una cara delante de una camara.
+   */
+  async changeShift(
+    personId: string,
+    action: 'break' | 'resume',
+    body: { note?: string } = {},
+  ) {
+    try {
+      const { data } = await this.http.post(
+        `/api/v1/shifts/${personId}/${action}`,
+        body,
+      );
+      return data;
+    } catch (e) {
+      // El 409 del Shift Service llega con su motivo y su codigo, y se
+      // propaga tal cual: "ya estabas en descanso" y "todavia no has
+      // entrado" son mensajes distintos para quien esta delante.
+      this.fail(e, 'No se pudo cambiar el estado de turno');
+    }
+  }
+
   async openShifts(query: Record<string, string | undefined>) {
     try {
       const { data } = await this.http.get('/api/v1/shifts', { params: query });

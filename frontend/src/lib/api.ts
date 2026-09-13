@@ -82,6 +82,9 @@ export interface ShiftSummary {
   siteName: string | null;
 }
 
+/** Motivos que se pueden declarar al empezar un descanso. */
+export type BreakNote = 'DESCANSO' | 'ALMUERZO' | 'BANO' | 'OTRO';
+
 export interface TimelineEntry {
   at: string;
   fromState: ShiftState;
@@ -89,6 +92,10 @@ export interface TimelineEntry {
   direction: 'IN' | 'OUT' | null;
   zoneName: string | null;
   accessPointName: string | null;
+  /** Quién provocó la transición: una puerta, la persona o el sistema. */
+  origin: 'ACCESS' | 'MANUAL' | 'SYSTEM';
+  /** Motivo declarado, solo en las entradas manuales. */
+  note: BreakNote | null;
 }
 
 export interface WorkDay {
@@ -395,6 +402,24 @@ export const api = {
 
   async myTimeline(): Promise<{ items: WorkDay[] }> {
     return request('/me/timeline');
+  },
+
+  /**
+   * Declara un descanso propio.
+   *
+   * Solo mueve el estado dentro de la sede. Entrar y salir siguen
+   * siendo cosa de la cámara: no hay forma de fichar desde aquí.
+   */
+  async startBreak(note: BreakNote): Promise<ShiftSummary> {
+    return request('/me/shift/break', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    });
+  },
+
+  async endBreak(): Promise<ShiftSummary> {
+    return request('/me/shift/resume', { method: 'POST' });
   },
 
   // ── Panel de operacion (exige token de administrador) ─────────

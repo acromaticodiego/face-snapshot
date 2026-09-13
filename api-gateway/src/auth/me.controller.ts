@@ -1,4 +1,12 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { ShiftServiceClient } from '../proxy/service-clients';
@@ -37,5 +45,27 @@ export class MeController {
   @ApiQuery({ name: 'date', required: false, description: 'AAAA-MM-DD' })
   timeline(@Req() request: RequestWithSession, @Query('date') date?: string) {
     return this.shifts.timeline(request.session!.personId, date);
+  }
+
+  @Post('shift/break')
+  @ApiOperation({
+    summary: 'Declara que empiezas un descanso',
+    description:
+      'Para las pausas que no cruzan ningún lector: el baño, un café, ' +
+      'comer en el propio puesto. No abre ni cierra la jornada.',
+  })
+  startBreak(
+    @Req() request: RequestWithSession,
+    @Body() body: { note?: string },
+  ) {
+    return this.shifts.changeShift(request.session!.personId, 'break', {
+      note: body?.note,
+    });
+  }
+
+  @Post('shift/resume')
+  @ApiOperation({ summary: 'Declara que vuelves al trabajo' })
+  endBreak(@Req() request: RequestWithSession) {
+    return this.shifts.changeShift(request.session!.personId, 'resume');
   }
 }
