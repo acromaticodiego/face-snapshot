@@ -243,6 +243,61 @@ describe('HandoverPage · cuando la transcripción falla', () => {
   });
 });
 
+describe('HandoverPage · cuando la sesión caduca', () => {
+  /**
+   * El token de sesión facial dura 15 minutos, y esta pantalla se usa
+   * al final de un turno. Que caduque a mitad no es raro: es lo normal
+   * si alguien se identificó y se puso a otra cosa.
+   *
+   * Lo que NO puede pasar es que se avise con un toast que desaparece y
+   * se deje a la persona mirando un botón que ya no va a funcionar
+   * nunca. Sin token no se transcribe ni se firma, y lo único que lo
+   * resuelve está en otra pantalla.
+   */
+  it('al dictar, lo dice y ofrece volver a identificarse', async () => {
+    montar();
+    const usuario = userEvent.setup();
+    api.logbookDraft.mockRejectedValue(
+      new ApiError('Token inválido o caducado', 401),
+    );
+
+    await usuario.click(
+      await screen.findByRole('button', { name: /dictar el parte/i }),
+    );
+    recorder.isRecording = true;
+    await usuario.click(screen.getByRole('button', { name: /dictar el parte/i }));
+
+    expect(await screen.findByText(/tu sesión ha caducado/i)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: /volver a identificarme/i }),
+    ).toBeVisible();
+  });
+
+  it('al firmar, avisa sin borrar lo que hay escrito', async () => {
+    // Aquí duele más: hay un parte revisado en pantalla. Se avisa con
+    // un bloque fijo y no con un toast, para que siga a la vista.
+    montar();
+    const usuario = userEvent.setup();
+    api.signHandover.mockRejectedValue(
+      new ApiError('Token inválido o caducado', 401),
+    );
+
+    await usuario.click(
+      await screen.findByRole('button', { name: /escribirlo a mano/i }),
+    );
+    await usuario.type(
+      screen.getByLabelText(/resumen del turno/i),
+      'Turno sin novedades.',
+    );
+    await usuario.click(screen.getByRole('button', { name: /firmar el parte/i }));
+
+    expect(await screen.findByText(/tu sesión ha caducado/i)).toBeVisible();
+    expect(screen.getByLabelText(/resumen del turno/i)).toHaveValue(
+      'Turno sin novedades.',
+    );
+  });
+});
+
 describe('HandoverPage · revisar antes de firmar', () => {
   it('enseña la transcripción y no deja editarla', async () => {
     montar();

@@ -5,6 +5,7 @@ import {
   Mic,
   PenLine,
   Plus,
+  ScanFace,
   Square,
   Trash2,
 } from 'lucide-react';
@@ -93,6 +94,16 @@ export function HandoverPage() {
   const [started, setStarted] = useState(false);
   const [structureNote, setStructureNote] = useState<string | null>(null);
 
+  /**
+   * La sesión facial caducó mientras se estaba en esta pantalla.
+   *
+   * Es un estado propio y no un aviso pasajero porque **no hay nada que
+   * se pueda hacer desde aquí**: el token dura 15 minutos y sin él no
+   * se transcribe ni se firma. Un toast que desaparece deja a alguien
+   * mirando un botón que no va a funcionar nunca.
+   */
+  const [expired, setExpired] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -166,6 +177,11 @@ export function HandoverPage() {
       // con el servicio» llevan a acciones opuestas —revisar el
       // micrófono o avisar de que algo está caído— y decir lo mismo en
       // los dos manda a buscar donde no es.
+      if (err instanceof ApiError && err.status === 401) {
+        setExpired(true);
+        return;
+      }
+
       const sinTranscripcion =
         err instanceof ApiError && err.code === 'TRANSCRIPTION_UNAVAILABLE';
       toast.error(
@@ -225,6 +241,14 @@ export function HandoverPage() {
       );
       navigate('/home', { replace: true, state });
     } catch (err) {
+      // Aquí duele más que al dictar: hay un parte revisado en pantalla
+      // que ya no se puede enviar. Se avisa con el estado, no con un
+      // toast, para que lo escrito siga a la vista mientras se decide
+      // qué hacer.
+      if (err instanceof ApiError && err.status === 401) {
+        setExpired(true);
+        return;
+      }
       toast.error(
         err instanceof ApiError ? err.message : 'No se pudo firmar el parte',
       );
@@ -259,6 +283,31 @@ export function HandoverPage() {
             Cuenta lo que ha pasado en tu turno. Lo revisas antes de firmarlo.
           </p>
         </header>
+
+        {/* La sesión caducada se avisa ANTES que nada y no se quita:
+            sin token no se transcribe ni se firma, y lo único que
+            resuelve es volver a pasar por la cámara. */}
+        {expired && (
+          <GlassCard className="mb-4 border-vault-orange/30 p-5">
+            <p className="flex items-start gap-2 text-sm text-vault-orange">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              Tu sesión ha caducado. Dura 15 minutos desde que te
+              identificaste.
+            </p>
+            <p className="mt-2 text-xs text-white/40">
+              Vuelve a pasar por la cámara y dicta el parte a continuación.
+              {started && ' Lo que hay escrito aquí se perderá.'}
+            </p>
+            <VaultButton
+              tone="blue"
+              className="mt-4 w-full"
+              onClick={() => navigate('/', { replace: true })}
+              icon={<ScanFace className="h-4 w-4" />}
+            >
+              Volver a identificarme
+            </VaultButton>
+          </GlassCard>
+        )}
 
         {sinJornada ? (
           <GlassCard className="p-6">
