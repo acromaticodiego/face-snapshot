@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminShell } from '@/components/AdminShell';
 import { DenialsCard } from '@/components/dashboard/DenialsCard';
+import { HourlyHeatmap } from '@/components/dashboard/HourlyHeatmap';
 import { LiveFeed } from '@/components/dashboard/LiveFeed';
+import { SimilarityChart } from '@/components/dashboard/SimilarityChart';
 import { StatTile } from '@/components/dashboard/StatTile';
 import { GlassCard } from '@/components/vault';
 import {
@@ -11,8 +13,10 @@ import {
   ApiError,
   type AccessLogRow,
   type DenialsResponse,
+  type HourlyResponse,
   type OpenShiftsResponse,
   type PresenceResponse,
+  type SimilarityResponse,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +28,19 @@ interface Snapshot {
   shifts: OpenShiftsResponse;
   logs: AccessLogRow[];
   denials: DenialsResponse;
+}
+
+/**
+ * Los dos análisis se cargan UNA vez, no en cada refresco.
+ *
+ * Miran semanas de historia: sondearlos cada cinco segundos seria
+ * lanzar un agregado sobre toda la tabla doce veces por minuto para
+ * ver cambiar el ultimo decimal. Lo que cambia a ritmo de segundos es
+ * el aforo y el feed, no la distribucion de un mes.
+ */
+interface Analysis {
+  similarity: SimilarityResponse;
+  hourly: HourlyResponse;
 }
 
 /**
@@ -47,6 +64,7 @@ interface Snapshot {
  */
 export function AdminDashboardPage() {
   const [data, setData] = useState<Snapshot | null>(null);
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -88,6 +106,27 @@ export function AdminDashboardPage() {
     const timer = setInterval(() => void load(), REFRESH_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const [similarity, hourly] = await Promise.all([
+          api.similarityStats(30),
+          api.hourlyStats(28),
+        ]);
+        if (!cancelled) setAnalysis({ similarity, hourly });
+      } catch {
+        // Sin ruido: el aviso de red ya lo da el bloque principal, y
+        // dos mensajes por el mismo corte solo estorban.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const counts = data?.shifts.countsByState ?? {};
 
@@ -157,6 +196,12 @@ export function AdminDashboardPage() {
             shifts={data?.shifts ?? null}
           />
         </div>
+      </div>
+
+      {/* ── Analisis: cambia despacio, se carga una vez ──────── */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <SimilarityChart data={analysis?.similarity ?? null} />
+        <HourlyHeatmap data={analysis?.hourly ?? null} />
       </div>
     </AdminShell>
   );
