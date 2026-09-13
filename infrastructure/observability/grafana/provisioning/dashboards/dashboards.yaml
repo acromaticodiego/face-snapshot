@@ -3,7 +3,7 @@ apiVersion: 1
 providers:
   - name: detector
     orgId: 1
-    folder: 'Control de acceso'
+    folder: 'Observabilidad'
     type: file
     disableDeletion: false
     # Los paneles se editan en la interfaz pero la verdad esta en el
