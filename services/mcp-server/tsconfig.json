@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    // ESM de verdad y no CommonJS, al contrario que los servicios
+    // NestJS: este paquete no usa decoradores ni `emitDecoratorMetadata`,
+    // y el SDK de MCP se publica como ESM.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "declaration": false,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}

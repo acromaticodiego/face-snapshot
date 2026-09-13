@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // El MISMO dist que la compilación normal, a propósito: un segundo
+    // directorio de salida obligaría a una regla nueva en el
+    // .gitignore, y la comprobación de integridad del repositorio avisa
+    // -con razón- de cada patrón sin anclar, porque así fue como una vez
+    // se ignoró código fuente de verdad.
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

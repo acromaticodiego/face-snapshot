@@ -1156,6 +1156,46 @@ Ver [ADR 0012](docs/adr/0012-bitacora-de-relevo.md).
 
 ---
 
+## Preguntarle al sistema desde un modelo
+
+Hay un **servidor MCP** que expone el dominio como herramientas, para
+poder preguntar en lenguaje natural quién está dentro, qué jornadas hay
+abiertas o qué dejó pendiente el turno anterior.
+
+```bash
+cd services/mcp-server && npm ci && npm run build && npm run smoke
+```
+
+Se conecta por stdio a Claude Code o a Claude Desktop; las instrucciones
+están en [services/mcp-server/README.md](services/mcp-server/README.md).
+
+**Es un cliente del Gateway, no de la base de datos.** Se autentica con
+una cuenta de administración y pasa por los mismos guards que el
+navegador: no tiene ni un privilegio que no tenga alguien sentado
+delante del panel. Ir directo a PostgreSQL habría sido más rápido y
+habría abierto una segunda puerta que nadie vigila.
+
+**Y es de solo lectura, anunciado como tal.** Ninguna herramienta abre
+una puerta, firma un parte ni toca una jornada.
+
+> Un modelo conectado a esto puede contar lo que pasó. No puede hacer
+> que pase nada.
+
+No es prudencia genérica: la autoridad de este sistema está
+deliberadamente concentrada —una puerta la abre el Access Service con
+una cara delante de una cámara, un parte lo firma quien vivió el turno—
+y una herramienta que hiciera cualquiera de las dos cosas por
+interpretación de una frase vaciaría de sentido las dos decisiones. La
+prueba de humo lo comprueba explícitamente.
+
+**Lo que expone son datos de terceros:** nombres, horas de entrada y
+salida, y lo que alguien declaró en un parte. La regla práctica es no
+ejecutarlo donde no dejarías abierto el panel de operación.
+
+Ver [ADR 0013](docs/adr/0013-servidor-mcp.md).
+
+---
+
 ## Observabilidad
 
 Los seis servicios exportan trazas y métricas por OTLP a un
@@ -1458,3 +1498,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0010 | Detección de vida pasiva, y por qué no deniega por defecto |
 | 0011 | Voz e IA: el modelo propone, la persona firma |
 | 0012 | La bitácora: firmada, inmutable y con el cruce congelado |
+| 0013 | El servidor MCP: cliente del Gateway, y de solo lectura |

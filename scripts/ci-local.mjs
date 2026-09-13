@@ -26,6 +26,7 @@ const NODE_SERVICES = [
   'services/access-service',
   'services/shift-service',
   'services/logbook-service',
+  'services/mcp-server',
 ];
 
 let failures = 0;

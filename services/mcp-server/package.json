@@ -1,0 +1,25 @@
+{
+  "name": "mcp-server",
+  "version": "1.0.0",
+  "description": "Servidor MCP de solo lectura sobre el control de acceso",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "detector-mcp": "dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "test": "node --test dist/*.test.js",
+    "pretest": "tsc -p tsconfig.test.json",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "26.5.0",
+    "typescript": "5.9.3"
+  }
+}

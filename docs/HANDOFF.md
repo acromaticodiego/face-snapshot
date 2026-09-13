@@ -444,9 +444,9 @@ de tiempo.
 
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Fase 5, voz e IA.** El `voice-service` ya está hecho y verificado;
-faltan el `logbook-service`, el servidor MCP y la interfaz. Detalle
-abajo.
+**1. Fase 5, voz e IA.** El `voice-service`, el `logbook-service` y el
+servidor MCP están hechos y verificados contra el stack. Falta **solo la
+interfaz**. Detalle abajo.
 
 **2. Conseguir ataques reales y calibrar la detección de vida**, que es
 lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
@@ -534,16 +534,54 @@ denegados, con `BELOW_THRESHOLD` 252 y `LIVENESS_FAILED` 1—.
 16 tests de lógica pura, verificados con cinco mutaciones que cada una
 tumba exactamente un caso.
 
-**LO QUE FALTA DE LA FASE 5:**
+### El servidor MCP también está · HECHO
 
-- **Servidor MCP** (`quien_esta_dentro`, `horas_trabajadas`,
-  `novedades_de_turno`): cliente del Gateway con token de
-  administración, **nunca** de la base de datos ni de los servicios
-  internos, y **solo lectura**. Se expone por stdio, fuera del compose.
-- **Interfaz** para dictar, revisar el borrador y firmarlo, más la vista
-  de lo pendiente al entrar al turno. Los endpoints ya están:
-  `POST /me/logbook/draft`, `POST /me/logbook`, `GET /me/logbook`,
-  `GET /me/logbook/pending` y `GET /admin/logbook`.
+`services/mcp-server`, por stdio y **fuera del compose**. Tres
+herramientas: `quien_esta_dentro`, `horas_trabajadas` y
+`novedades_de_turno`. Ver [ADR 0013](adr/0013-servidor-mcp.md) y el
+[README del paquete](../services/mcp-server/README.md).
+
+**Lo que no hay que deshacer:**
+
+1. **Es cliente del GATEWAY, no de la base de datos.** Se autentica con
+   una cuenta de administración y pasa por los mismos guards que el
+   navegador. Ir directo a PostgreSQL sería más rápido y abriría una
+   segunda puerta que nadie vigila, además de saltarse el aislamiento
+   por roles.
+2. **Solo lectura, y anunciado con `readOnlyHint`.** Ninguna herramienta
+   abre una puerta, firma un parte ni toca una jornada. La prueba de
+   humo lo comprueba, porque es la garantía más fácil de romper sin
+   querer añadiendo una herramienta útil.
+3. **Nada en `stdout` salvo el protocolo.** stdio usa la salida estándar
+   para el JSON-RPC: un `console.log` suelto corrompe la conversación y
+   el cliente se desconecta sin decir por qué. Los avisos van por
+   `stderr`, con la función `aviso()`.
+4. **Devuelve TEXTO, no JSON crudo.** Lo consume un modelo que se lo
+   cuenta a una persona. Ahí vive casi toda la lógica, y por eso los 18
+   tests son de formateo: este servidor no puede escribir nada, pero sí
+   contar mal lo que pasó.
+5. **`quien_esta_dentro` avisa en su respuesta de que «dentro» es
+   presencia física y no jornada abierta.** Sin esa nota, un modelo las
+   mezcla y afirma que alguien está en el edificio cuando está
+   `EN_PAUSA`.
+
+**Verificado contra el stack real:** `npm run smoke`, 9 comprobaciones
+en verde, hablando el protocolo por stdio con el cliente oficial del
+SDK. Devolvió 21 personas dentro, 21 jornadas abiertas y las 2
+incidencias pendientes del parte firmado.
+
+    cd services/mcp-server && npm ci && npm run build && npm run smoke
+
+**LO QUE FALTA DE LA FASE 5 — solo la interfaz:**
+
+Falta la pantalla para dictar, revisar el borrador y firmarlo, más la
+vista de lo pendiente al entrar al turno. **Todos los endpoints están
+puestos y probados**: `POST /me/logbook/draft`, `POST /me/logbook`,
+`GET /me/logbook`, `GET /me/logbook/pending` y `GET /admin/logbook`.
+
+Cuidado al construirla con la restricción del panel que ya existe: ocupa
+el alto de la ventana y no crece, así que un bloque nuevo va DENTRO de
+una columna, no debajo.
 
 ### LA DETECCION DE VIDA NO FUNCIONA — medido con datos reales
 
