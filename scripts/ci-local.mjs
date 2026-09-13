@@ -146,6 +146,7 @@ section('4. frontend');
   if (fast || step('npm ci', 'npm ci --no-audit --no-fund', cwd)) {
     step('Tipos', 'npx tsc --noEmit', cwd);
     step('Compilación', 'npm run build', cwd);
+    step('Tests', 'npm test', cwd);
   }
 }
 

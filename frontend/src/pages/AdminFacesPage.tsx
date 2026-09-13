@@ -179,10 +179,11 @@ export function AdminFacesPage() {
             </p>
           </GlassCard>
         ) : (
-          <div className="space-y-3">
+          <ul className="space-y-3">
             {people.map((person) => (
               <GlassCard
                 key={person.id}
+                as="li"
                 className="animate-fade-up flex flex-wrap items-center gap-4 p-4"
               >
                 <div
@@ -279,7 +280,7 @@ export function AdminFacesPage() {
                 </div>
               </GlassCard>
             ))}
-          </div>
+          </ul>
         )}
       </>
 
