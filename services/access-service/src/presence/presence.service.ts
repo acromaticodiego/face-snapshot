@@ -93,15 +93,39 @@ export class PresenceService {
     return { ...row, lastDirection };
   }
 
-  /** Quién está dentro ahora mismo, para el panel de operación. */
+  /**
+   * Quién está dentro ahora mismo, para el panel de operación.
+   *
+   * El nombre de la zona se trae por la relación en lugar de guardarlo
+   * desnormalizado en la tabla: esta fila se escribe en el camino
+   * crítico de cada concesión, y ahí no se duplica nada que no haga
+   * falta para decidir. La lectura del panel sí puede permitirse la
+   * unión, que es contra una tabla de unas pocas filas.
+   *
+   * No se devuelve el nombre de la persona porque este servicio no lo
+   * tiene: las identidades son del Face Service. Quién está dentro con
+   * nombre y apellido lo responde el Shift Service, que sí lo guarda
+   * con cada jornada.
+   */
   async listInside(params: { siteId?: string; zoneId?: string }) {
-    return this.prisma.presence.findMany({
+    const rows = await this.prisma.presence.findMany({
       where: {
         inside: true,
         ...(params.siteId ? { siteId: params.siteId } : {}),
         ...(params.zoneId ? { zoneId: params.zoneId } : {}),
       },
       orderBy: { lastPassageAt: 'desc' },
+      include: { zone: { select: { name: true, shiftEffect: true } } },
     });
+
+    return rows.map((row) => ({
+      personId: row.personId,
+      zoneId: row.zoneId,
+      zoneName: row.zone.name,
+      zoneShiftEffect: row.zone.shiftEffect,
+      siteId: row.siteId,
+      lastDirection: row.lastDirection,
+      lastPassageAt: row.lastPassageAt,
+    }));
   }
 }

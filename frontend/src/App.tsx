@@ -3,6 +3,7 @@ import { Toaster } from 'sonner';
 
 import { RequireAdmin } from '@/components/RequireAdmin';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { AdminDashboardPage } from '@/pages/AdminDashboardPage';
 import { AdminFacesPage } from '@/pages/AdminFacesPage';
 import { AdminLoginPage } from '@/pages/AdminLoginPage';
 import { AuthPage } from '@/pages/AuthPage';
@@ -20,6 +21,14 @@ export default function App() {
             ni marcadores que alguien tuviera guardados. */}
         <Route path="/bienvenida" element={<Navigate to="/home" replace />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <RequireAdmin>
+              <AdminDashboardPage />
+            </RequireAdmin>
+          }
+        />
         <Route
           path="/admin/faces"
           element={

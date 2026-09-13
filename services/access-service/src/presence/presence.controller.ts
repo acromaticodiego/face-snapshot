@@ -37,8 +37,12 @@ export class PresenceController {
       // Aforo por zona, que es lo que pinta el panel. Se calcula aquí y
       // no en el navegador para que dos clientes no puedan discrepar
       // sobre cuánta gente hay en un edificio.
-      occupancyByZone: items.reduce<Record<string, number>>((counts, row) => {
-        counts[row.zoneId] = (counts[row.zoneId] ?? 0) + 1;
+      occupancyByZone: items.reduce<
+        Record<string, { zoneName: string; count: number }>
+      >((counts, row) => {
+        const zone = counts[row.zoneId] ?? { zoneName: row.zoneName, count: 0 };
+        zone.count += 1;
+        counts[row.zoneId] = zone;
         return counts;
       }, {}),
       // Personas distintas: alguien dentro del laboratorio consta

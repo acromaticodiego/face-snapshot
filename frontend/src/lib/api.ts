@@ -110,15 +110,16 @@ export interface WorkDay {
 export interface PresenceRow {
   personId: string;
   zoneId: string;
+  zoneName: string;
+  zoneShiftEffect: 'WORK' | 'BREAK' | 'NEUTRAL';
   siteId: string;
-  inside: boolean;
   lastDirection: string;
   lastPassageAt: string;
 }
 
 export interface PresenceResponse {
   items: PresenceRow[];
-  occupancyByZone: Record<string, number>;
+  occupancyByZone: Record<string, { zoneName: string; count: number }>;
   /** Personas distintas: quien está en el laboratorio consta también
    *  dentro de las oficinas, así que sumar zonas inflaría el aforo. */
   totalPeople: number;

@@ -1,9 +1,7 @@
 import {
-  ArrowLeft,
   Camera,
   Check,
   IdCard,
-  LogOut,
   Search,
   Trash2,
   User,
@@ -11,20 +9,17 @@ import {
   Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { AdminShell } from '@/components/AdminShell';
 import { EnrollDialog } from '@/components/EnrollDialog';
 import {
   GlassCard,
   GlassField,
   GlowBadge,
-  VaultBackground,
   VaultButton,
-  VaultTitle,
 } from '@/components/vault';
 import { api, ApiError, type Person } from '@/lib/api';
-import { adminSession } from '@/lib/auth';
 import { formatDate } from '@/lib/utils';
 
 /** Degradados para el círculo de iniciales, repartidos por nombre. */
@@ -43,8 +38,6 @@ function gradientFor(name: string): string {
 }
 
 export function AdminFacesPage() {
-  const navigate = useNavigate();
-  const admin = adminSession.getProfile();
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -132,46 +125,11 @@ export function AdminFacesPage() {
   };
 
   return (
-    <div className="relative min-h-dvh bg-vault-bg">
-      <VaultBackground />
-
-      <div className="relative z-10 mx-auto max-w-4xl px-4 py-8">
-        {/* ── Navegación superior ──────────────────────────────── */}
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-white/55 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Volver a la autenticación
-          </Link>
-
-          <div className="flex items-center gap-2">
-            {admin && (
-              <span className="text-sm text-white/55">{admin.displayName}</span>
-            )}
-            <VaultButton
-              size="sm"
-              tone="ghost"
-              icon={<LogOut className="h-3.5 w-3.5" />}
-              onClick={() => {
-                adminSession.clear();
-                navigate('/admin/login', { replace: true });
-              }}
-            >
-              Salir
-            </VaultButton>
-          </div>
-        </div>
-
-        {/* ── Encabezado ───────────────────────────────────────── */}
-        <header className="mb-8">
-          <VaultTitle>Personas registradas</VaultTitle>
-          <p className="mt-2 text-sm text-white/45">
-            Solo se almacena la representación matemática del rostro, nunca la
-            fotografía.
-          </p>
-        </header>
+    <AdminShell
+      title="Personas registradas"
+      subtitle="Solo se almacena la representación matemática del rostro, nunca la fotografía."
+    >
+      <>
 
         {/* ── Alta de persona ──────────────────────────────────── */}
         <GlassCard glow="purple" className="mb-6 p-6">
@@ -326,7 +284,7 @@ export function AdminFacesPage() {
             ))}
           </div>
         )}
-      </div>
+      </>
 
       {enrolling && (
         <EnrollDialog
@@ -338,6 +296,6 @@ export function AdminFacesPage() {
           }}
         />
       )}
-    </div>
+    </AdminShell>
   );
 }
