@@ -45,6 +45,11 @@ const MESSAGES: Record<AccessReason, string> = {
   OUTSIDE_SCHEDULE: 'Te reconocí, pero estás fuera de tu horario',
   ASSIGNMENT_EXPIRED: 'Te reconocí, pero tu acceso ha caducado',
   ACCESS_POINT_DISABLED: 'Esta puerta no está disponible',
+  // Deliberadamente vago con quien está delante. Si el mensaje dijera
+  // qué señal disparó la sospecha —el brillo de una pantalla, la falta
+  // de textura— estaría explicándole a quien lo intenta cómo evitarla
+  // en el siguiente intento.
+  LIVENESS_FAILED: 'No se pudo verificar la captura. Inténtalo de nuevo',
   // No es un problema de permisos: la persona puede pasar, pero el
   // sistema no la ha visto salir. Decir "acceso denegado" a secas
   // haría que quien está delante buscase el error en su cara.

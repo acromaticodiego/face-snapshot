@@ -10,6 +10,8 @@ import { PolicyService } from '../policy/policy.service';
 import type { AccessPointContext } from '../policy/policy.repository';
 import type { Passage } from '../presence/antipassback.engine';
 import { PassageService } from '../presence/passage.service';
+import { DomainMetrics } from '../telemetry/domain.metrics';
+import { judgeFrame, type LivenessPolicy } from './liveness.engine';
 import { PresenceService } from '../presence/presence.service';
 import {
   VOTE_WINDOW_STORE,
@@ -30,6 +32,9 @@ export type AccessReason =
   | 'OUTSIDE_SCHEDULE'
   | 'ASSIGNMENT_EXPIRED'
   | 'ACCESS_POINT_DISABLED'
+  // Suplantacion: la captura no parece una persona delante de la
+  // camara, sino una foto o una pantalla. Solo se emite en modo HARD.
+  | 'LIVENESS_FAILED'
   // Anti-passback: te reconozco y puedes pasar, pero ya constas dentro.
   | 'ANTIPASSBACK_VIOLATION';
 
@@ -103,6 +108,15 @@ export class VerificationService {
    */
   private readonly sessionTtl: NonNullable<JwtSignOptions['expiresIn']>;
 
+  /**
+   * Politica de deteccion de vida.
+   *
+   * El modo por defecto es SOFT -anota y deja pasar- porque la senal no
+   * esta validada contra ataques reales. Encender HARD sin haber mirado
+   * antes lo que SOFT registra es denegar accesos a ciegas.
+   */
+  private readonly liveness: LivenessPolicy;
+
   constructor(
     private readonly faceClient: FaceClient,
     @Inject(VOTE_WINDOW_STORE)
@@ -112,12 +126,24 @@ export class VerificationService {
     private readonly presence: PresenceService,
     private readonly passages: PassageService,
     private readonly jwt: JwtService,
+    private readonly metrics: DomainMetrics,
     config: ConfigService,
   ) {
     this.sessionTtl = config.get<string>(
       'JWT_EXPIRES_IN',
       '15m',
     ) as NonNullable<JwtSignOptions['expiresIn']>;
+
+    this.liveness = {
+      mode: config.get<LivenessPolicy['mode']>('LIVENESS_MODE', 'SOFT'),
+      // Los umbrales salen de medir degradaciones SINTETICAS sobre un
+      // rostro: captura directa 0.56 de detalle y 14 de pico; una foto
+      // de una foto 0.32 y 38; una pantalla 0.63 y 149. Estan puestos
+      // en medio de esos valores y son PROVISIONALES hasta medirlos
+      // con ataques reales. Por eso el modo por defecto no deniega.
+      minDetailRatio: Number(config.get('LIVENESS_MIN_DETAIL_RATIO', 0.25)),
+      maxPatternPeak: Number(config.get('LIVENESS_MAX_PATTERN_PEAK', 90)),
+    };
   }
 
   async verifyFrame(params: {
@@ -190,7 +216,40 @@ export class VerificationService {
     const face = recognition.faces[0];
     const verdict = this.toVerdict(face);
 
-    // ── Caso 3: rostro no reconocido ──────────────────────────────
+    // ── Caso 3: la captura no parece una persona ──────────────────
+    //
+    // Va ANTES de votar, y eso es lo que hace que no haga falta ningún
+    // mecanismo nuevo: un frame sospechoso no acumula voto, igual que
+    // uno de baja calidad. Como entrar exige 3 coincidencias dentro de
+    // una ventana de 5, un reflejo aislado no cierra la puerta pero una
+    // fuente consistentemente sospechosa nunca llega a los 3 votos.
+    //
+    // En SOFT se anota y se sigue. Es el modo por defecto a propósito:
+    // la señal no está validada contra ataques reales, y denegar el
+    // paso a una persona real con un número sin calibrar es peor que el
+    // problema que resuelve.
+    const vida = judgeFrame(face.liveness, this.liveness);
+    if (vida.suspicious) {
+      this.metrics.registrarSospechaDeVida(vida.reason, this.liveness.mode);
+      this.logger.warn(
+        `Sospecha de suplantación (${vida.reason}) en ${point.siteName}/` +
+          `${point.zoneName} · modo ${this.liveness.mode}`,
+      );
+
+      if (this.liveness.mode === 'HARD') {
+        return this.deny({
+          reason: 'LIVENESS_FAILED',
+          sessionKey: params.sessionKey ?? this.votes.createKey(),
+          faces: [verdict],
+          imageWidth: recognition.imageWidth,
+          imageHeight: recognition.imageHeight,
+          cameraId: params.cameraId,
+          point,
+        });
+      }
+    }
+
+    // ── Caso 4: rostro no reconocido ──────────────────────────────
     if (!face.match) {
       const vote = await this.votes.record(
         params.sessionKey,
@@ -222,7 +281,7 @@ export class VerificationService {
       };
     }
 
-    // ── Caso 4: reconocido, pero ¿puede pasar por AQUI y AHORA? ───
+    // ── Caso 5: reconocido, pero ¿puede pasar por AQUI y AHORA? ───
     //
     // La autorización se comprueba ANTES de acumular votos. Si alguien
     // no tiene permiso en esta zona, hacerle esperar tres frames para
@@ -262,7 +321,7 @@ export class VerificationService {
       };
     }
 
-    // ── Caso 5: ¿es coherente este paso con donde esta? ───────────
+    // ── Caso 6: ¿es coherente este paso con donde esta? ───────────
     //
     // El anti-passback se evalua aqui, junto a la politica y antes de
     // votar, por el mismo motivo: el veredicto ya se conoce desde el
@@ -306,7 +365,7 @@ export class VerificationService {
       };
     }
 
-    // ── Caso 6: autorizado; se acumula el voto ────────────────────
+    // ── Caso 7: autorizado; se acumula el voto ────────────────────
     const vote = await this.votes.record(
       params.sessionKey,
       face.match.personId,
@@ -330,7 +389,7 @@ export class VerificationService {
       };
     }
 
-    // ── Caso 7: acceso concedido ──────────────────────────────────
+    // ── Caso 8: acceso concedido ──────────────────────────────────
     //
     // La sesion, el asiento de auditoria y la presencia se escriben en
     // una sola transaccion. Si fueran escrituras sueltas y el proceso

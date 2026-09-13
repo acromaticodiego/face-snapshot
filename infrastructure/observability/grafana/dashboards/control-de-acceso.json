@@ -2,21 +2,35 @@
   "uid": "control-de-acceso",
   "title": "Control de acceso",
   "description": "Salud del reconocimiento facial y del bus de eventos. Las familias de denegacion son las mismas que usa el panel de operacion del producto: separarlas es la razon de ser del enum, porque 'no se reconocio a la persona' y 'reconocida pero sin permiso' se investigan en sitios distintos.",
-  "tags": ["detector", "fase-4"],
+  "tags": [
+    "detector",
+    "fase-4"
+  ],
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "type": "stat",
       "title": "Tiempo de un frame (p95)",
       "description": "Percentil 95 de la peticion completa de verificacion, extremo a extremo. Se mira el p95 y no la media porque quien espera delante de una camara sufre la cola, no el promedio.",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -28,13 +42,24 @@
         "defaults": {
           "unit": "ms",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "#199e70", "value": null },
-              { "color": "#d95926", "value": 1000 },
-              { "color": "#e66767", "value": 2000 }
+              {
+                "color": "#199e70",
+                "value": null
+              },
+              {
+                "color": "#d95926",
+                "value": 1000
+              },
+              {
+                "color": "#e66767",
+                "value": 2000
+              }
             ]
           }
         },
@@ -44,7 +69,13 @@
         "graphMode": "area",
         "colorMode": "value",
         "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       }
     },
     {
@@ -52,8 +83,16 @@
       "type": "stat",
       "title": "Retraso de la outbox",
       "description": "Antiguedad del evento de acceso mas viejo que sigue sin publicarse. ES LA ALARMA MAS IMPORTANTE DE ESTE PANEL: si sube, las puertas siguen funcionando y ninguna peticion falla, pero las horas de la gente han dejado de computarse. Es un fallo que no se nota hasta que alguien mira su hoja a final de mes.",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -65,13 +104,24 @@
         "defaults": {
           "unit": "s",
           "decimals": 1,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "#199e70", "value": null },
-              { "color": "#d95926", "value": 10 },
-              { "color": "#e66767", "value": 60 }
+              {
+                "color": "#199e70",
+                "value": null
+              },
+              {
+                "color": "#d95926",
+                "value": 10
+              },
+              {
+                "color": "#e66767",
+                "value": 60
+              }
             ]
           }
         },
@@ -81,7 +131,13 @@
         "graphMode": "area",
         "colorMode": "value",
         "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       }
     },
     {
@@ -89,8 +145,16 @@
       "type": "stat",
       "title": "Accesos concedidos por minuto",
       "description": "Ritmo de pasos concedidos. Sirve de contexto para leer el resto: un retraso de la outbox con cero trafico no dice lo mismo que con la entrada de la manana.",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -102,7 +166,10 @@
         "defaults": {
           "unit": "short",
           "decimals": 1,
-          "color": { "mode": "fixed", "fixedColor": "#199e70" }
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#199e70"
+          }
         },
         "overrides": []
       },
@@ -110,7 +177,13 @@
         "graphMode": "area",
         "colorMode": "value",
         "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       }
     },
     {
@@ -118,8 +191,16 @@
       "type": "stat",
       "title": "Eventos sin consumir",
       "description": "Mensajes entregados al grupo de consumidores del Shift Service y todavia sin confirmar. Mide una averia DISTINTA del retraso de la outbox: aquella dice 'no sale del emisor', esta dice 'sale pero no se consume'. Tienen arreglos distintos.",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -131,13 +212,24 @@
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "#199e70", "value": null },
-              { "color": "#d95926", "value": 1 },
-              { "color": "#e66767", "value": 20 }
+              {
+                "color": "#199e70",
+                "value": null
+              },
+              {
+                "color": "#d95926",
+                "value": 1
+              },
+              {
+                "color": "#e66767",
+                "value": 20
+              }
             ]
           }
         },
@@ -147,7 +239,13 @@
         "graphMode": "area",
         "colorMode": "value",
         "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       }
     },
     {
@@ -155,8 +253,16 @@
       "type": "timeseries",
       "title": "Donde se va el tiempo de un frame",
       "description": "Percentil 95 de cada etapa del pipeline de vision. Es la pregunta que este proyecto no podia contestar antes de la Fase 4: medido sobre el stack real, el detector se lleva entre el 60 y el 65 % del tiempo, el embedding la mayor parte del resto, y la busqueda vectorial en pgvector -la sospechosa intuitiva- cuesta algo mas de un milisegundo y no interviene. Importa porque el margen del umbral es estrecho y lo que hace falta no es cambiar el numero sino mejorar la captura: esto dice de que presupuesto se dispone.",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -192,22 +298,66 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Deteccion (rostros.pt)" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Deteccion (rostros.pt)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "Embedding (ArcFace)" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Embedding (ArcFace)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "Alineacion" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Alineacion"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#199e70"
+                }
+              }
+            ]
           }
         ]
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
@@ -215,8 +365,16 @@
       "type": "timeseries",
       "title": "Decisiones por familia",
       "description": "Pasos por minuto, agrupados por el tipo de problema y no por el motivo exacto. La separacion es la misma que usa el panel de operacion del producto, y es la razon de ser del enum: 'no se reconocio a la persona' apunta a la camara, la luz o el enrolamiento, y 'reconocida pero sin permiso' apunta a los roles o al horario. Son incidentes distintos y se investigan en sitios distintos.",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -235,7 +393,7 @@
         },
         {
           "refId": "D",
-          "expr": "sum(rate(acceso_decisiones_total{motivo=~\"ANTIPASSBACK_VIOLATION|ACCESS_POINT_DISABLED\"}[5m])) * 60",
+          "expr": "sum(rate(acceso_decisiones_total{motivo=~\"ANTIPASSBACK_VIOLATION|ACCESS_POINT_DISABLED|LIVENESS_FAILED\"}[5m])) * 60",
           "legendFormat": "Operacion"
         }
       ],
@@ -251,32 +409,89 @@
             "showPoints": "never",
             "pointSize": 8,
             "spanNulls": true,
-            "stacking": { "mode": "normal", "group": "A" },
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
             "axisSoftMin": 0
           }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Concedido" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Concedido"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#199e70"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "Sin permiso" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Sin permiso"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "No reconocido" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "No reconocido"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "Operacion" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#e66767" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Operacion"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#e66767"
+                }
+              }
+            ]
           }
         ]
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["mean"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
@@ -284,8 +499,16 @@
       "type": "heatmap",
       "title": "Distribucion de similitudes",
       "description": "Similitud coseno del mejor candidato de cada frame con rostro, a lo largo del tiempo. El umbral esta en 0.38. ESTE GRAFICO NO PUEDE DECIR TASAS DE ERROR, y no es un descuido: las dos nubes -misma persona y personas distintas- las separa el propio umbral que se evalua, asi que jamas se vera solapamiento por mucho que lo haya. Lo que si dice es si los reconocimientos se estan acercando al umbral, que es la senal de que la captura se esta degradando.",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -305,20 +528,50 @@
           "exponent": 0.5,
           "fill": "#3987e5"
         },
-        "yAxis": { "unit": "short", "decimals": 2, "axisLabel": "similitud coseno" },
-        "legend": { "show": true },
-        "tooltip": { "mode": "single", "yHistogram": true },
-        "exemplars": { "color": "#e66767" }
+        "yAxis": {
+          "unit": "short",
+          "decimals": 2,
+          "axisLabel": "similitud coseno"
+        },
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true
+        },
+        "exemplars": {
+          "color": "#e66767"
+        }
       },
-      "fieldConfig": { "defaults": { "custom": { "hideFrom": { "tooltip": false, "viz": false, "legend": false } } }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 8,
       "type": "timeseries",
       "title": "Cola del bus de eventos",
       "description": "Las dos colas del camino asincrono, ambas en numero de eventos. Van juntas porque comparten unidad; el retraso en segundos vive en su propia tarjeta arriba, que es donde debe estar: mezclar segundos y unidades en un mismo eje obligaria a dos escalas y haria el grafico ilegible.",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -348,18 +601,50 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Sin publicar (outbox)" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Sin publicar (outbox)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "Sin confirmar (consumidor)" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "Sin confirmar (consumidor)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
           }
         ]
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
@@ -367,8 +652,16 @@
       "type": "timeseries",
       "title": "Latencia p95 por servicio",
       "description": "Derivada de las propias trazas por el colector, asi que no hay ninguna metrica instrumentada a mano que pueda desincronizarse de ellas. Solo cuenta lo que entra por una frontera del sistema -peticiones atendidas y mensajes consumidos-, no las llamadas salientes, que ya se miden en el servicio del otro lado.",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
         {
           "refId": "A",
@@ -393,34 +686,197 @@
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "api-gateway" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "api-gateway"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "access-service" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "access-service"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "face-service" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "face-service"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#199e70"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "vision-service" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c98500" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "vision-service"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "shift-service" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#d55181" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "shift-service"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d55181"
+                }
+              }
+            ]
           },
           {
-            "matcher": { "id": "byName", "options": "auth-service" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9085e9" } }]
+            "matcher": {
+              "id": "byName",
+              "options": "auth-service"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#9085e9"
+                }
+              }
+            ]
           }
         ]
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Sospechas de suplantación",
+      "description": "Frames en los que la captura no parecía una persona, por motivo. EN MODO SOFT -el de por defecto- ESTE PANEL ES LO UNICO QUE QUEDA de la sospecha, porque el acceso se concede igual. Es la fuente con la que calibrar los umbrales antes de encender HARD: si aquí aparece tráfico constante sin que nadie esté atacando nada, los umbrales están mal puestos y encender la denegación dejaría gente en la calle. Poco detalle apunta a una reimpresión; un patrón periódico, a una pantalla.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (motivo) (rate(acceso_sospechas_de_vida_total[5m])) * 60",
+          "legendFormat": "{{motivo}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "showPoints": "never",
+            "pointSize": 8,
+            "spanNulls": true,
+            "axisSoftMin": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PERIODIC_PATTERN"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOW_DETAIL"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     }
   ]

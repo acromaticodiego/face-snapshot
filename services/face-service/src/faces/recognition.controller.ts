@@ -58,6 +58,7 @@ export class RecognitionController {
         bbox: face.bbox,
         detectionScore: face.detectionScore,
         quality: face.quality,
+        liveness: face.liveness,
         match: identity.match,
         bestSimilarity: identity.bestSimilarity,
       })),

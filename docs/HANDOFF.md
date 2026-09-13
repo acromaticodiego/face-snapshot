@@ -46,8 +46,8 @@ el horario, y registra el acceso.
 Arquitectura de microservicios, funcionando de extremo a extremo.
 **Fases 1, 2, 3 y 4 completadas**, más el rol en el alta, la capacidad
 del Vision Service y los tests del perímetro y del frontend.
-Lo siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: la Fase 6
-(anti-spoofing) o la Fase 5 (voz e IA), sin decidir cuál va antes.
+Lo siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: la Fase 5
+(voz e IA), y calibrar la detección de vida con ataques reales.
 
 ---
 
@@ -240,8 +240,26 @@ los dos primeros guiones.
 Están documentadas en el README; **no las "descubras" como si fueran
 fallos**:
 
-1. **Sin anti-spoofing.** Una foto en un móvil pasaría la
-   autenticación. El sistema no es apto para producción real.
+1. **Detección de vida SIN VALIDAR.** Desde la Fase 6 existe el
+   mecanismo, y hay que leerlo con cuidado: **existe y no está
+   validado.** Mide detalle fino y patrón periódico sobre la textura del
+   rostro (4.7 ms de los ~1100 de un frame) y **por defecto NO deniega**
+   —modo `SOFT`: anota en `acceso_sospechas_de_vida` y deja pasar—
+   porque nadie ha medido su tasa de falso rechazo.
+
+   **No se pudo demostrar que pare una foto en un móvil.** Hace falta un
+   conjunto de ataques reales y medir APCER/BPCER. El intento con un
+   ataque sintético dejó un hallazgo: el detector deja de encontrar la
+   cara antes de que la señal reaccione (al 2 % de modulación de rejilla
+   hay cara y no hay señal; al 5 % ya no hay cara). Con los umbrales por
+   defecto, el ataque sintético más fuerte que el detector tolera **no
+   se detecta**.
+
+   El sistema sigue **sin ser apto para control de acceso real**, ahora
+   porque su defensa no está validada en lugar de no existir. Lo que
+   haría falta para encender `HARD`, y en qué orden, está en el
+   [ADR 0010](adr/0010-deteccion-de-vida.md).
+
 2. **Cobertura de tests desigual, pero ya no en el perímetro.** Hay
    **214 casos** repartidos así:
 
@@ -419,14 +437,10 @@ de tiempo.
 
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Fase 6, anti-spoofing** (ver la recomendación más abajo) **o
-Fase 5, voz e IA.**
+**1. Fase 5, voz e IA.** Es lo único que queda del plan original.
 
-El orden entre esas dos está sin decidir. Fase 6 cierra el agujero
-que el propio README reconoce —una foto en un móvil pasa la
-autenticación, y el sistema no es apto para producción por eso—, y su
-punto de enganche ya existe: la votación multi-frame acumula frames
-consecutivos, que es lo que necesita una detección de vida pasiva.
+**2. Conseguir ataques reales y calibrar la detección de vida**, que es
+lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
 
 ### Fase 5 — Voz e IA
 - `voice-service` (Python, sin estado, simétrico al vision-service):
@@ -440,105 +454,29 @@ consecutivos, que es lo que necesita una detección de vida pasiva.
   (`quien_esta_dentro`, `horas_trabajadas`, `novedades_de_turno`)
 - Las claves de Deepgram y Gemini están en el `.env` del usuario
 
-### Fase 6 — Anti-spoofing
-Detección de vida. El punto de enganche es la votación multi-frame, que
-ya acumula frames consecutivos.
+### ~~Fase 6 — Anti-spoofing~~ · HECHA, con una advertencia grande
 
----
+Detección de vida pasiva: el Vision Service mide, el Access Service
+decide, y los modos son `OFF`/`SOFT`/`HARD` como el anti-passback.
+Cuesta 4.7 ms de los ~1100 de un frame. Ver
+[ADR 0010](adr/0010-deteccion-de-vida.md).
 
-## Cómo levantar el proyecto
+**LA ADVERTENCIA.** No está validada y el defecto no deniega. No digas
+en ningún sitio que el sistema detecta fotos: lo que se demostró es que
+el mecanismo funciona —`HARD` deniega, `SOFT` con la misma sospecha deja
+pasar— forzando un umbral imposible. Lo que NO se demostró es que
+detenga un ataque real.
 
-```bash
-docker compose up -d
-# Frontend      http://localhost:5173
-# Swagger       http://localhost:3000/docs
-# Admin login   http://localhost:5173/admin/login
-```
+**Si retomas esto, empieza por aquí:** consigue ataques de verdad. Una
+foto impresa y una pantalla, capturadas con la misma cámara del
+despliegue. Sin eso no se puede calibrar nada, y todo lo demás es
+adivinar. El intento de fabricarlos sintéticamente falló por un motivo
+que conviene saber: **el detector deja de encontrar la cara antes de que
+la señal reaccione**, así que degradar una imagen no sirve.
 
-Credenciales de administración en el `.env` de la raíz
-(`ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD`).
+Descartadas por ahora y anotadas: un modelo entrenado (MiniFASNet), que
+mete una dependencia externa en el camino crítico y tampoco se podría
+validar; y el reto activo (parpadear), que sí sería demostrable pero
+cambia la experiencia de pasar por una puerta, y eso es decisión de
+producto.
 
-Si se recrea la base de datos (`docker compose down -v`), hay que
-reaplicar migraciones y volver a sembrar:
-
-```bash
-cd services/face-service   && npx prisma migrate deploy
-cd ../access-service       && npx prisma migrate deploy && npx ts-node prisma/seed.ts
-cd ../auth-service         && npx prisma migrate deploy
-cd ../shift-service        && npx prisma migrate deploy
-```
-
-**Si la base de datos ya existía antes de la Fase 2**, el schema
-`shift_svc` no está: los archivos de `infrastructure/postgres/init/`
-solo se ejecutan al crear el volumen. Aplícalo sin perder los rostros
-enrolados:
-
-```bash
-node scripts/apply-shift-schema.mjs
-cd services/shift-service && npx prisma migrate deploy
-```
-
----
-
-## Errores que ya se cometieron, para no repetirlos
-
-- `.gitignore` con reglas sin anclar (`logs/`) llegó a ignorar código
-  fuente. Ancla siempre los nombres genéricos con `/`.
-- `tsc --noEmit` deja un `tsconfig.tsbuildinfo` que hace que el
-  siguiente `nest build` no emita nada. Ya está resuelto apuntando
-  `tsBuildInfoFile` dentro de `dist/`.
-- `COPY prisma* ./` en Docker copia el *contenido* del directorio, no el
-  directorio. Por eso hay dos Dockerfiles de NestJS.
-- `ultralytics` arrastra `opencv-python` (con GUI) que falla sin X11 en
-  imágenes slim. Se fuerza la variante headless.
-- Verifica siempre lo que afirmes sobre los modelos. El primer
-  `rostros.pt` que entregó el usuario resultó ser un detector de tráfico;
-  se descubrió inspeccionando el archivo en lugar de asumir.
-- **No midas tasas de error con datos que el propio umbral ha
-  clasificado.** Se intentó y salían cero siempre. Está explicado en
-  `access-service/src/stats/threshold.analysis.ts`; no lo "arregles"
-  volviendo a contarlas.
-- **Un `/health` nunca debe poder colgarse.** El del Shift Service lo
-  hacía con Redis caído, porque su cliente reintenta indefinidamente
-  —correcto para el consumidor, veneno para una sonda—. Cualquier
-  comprobación de dependencia va con plazo.
-- **Comprueba lo que devuelve la API, no solo lo que se guarda.** Al
-  añadir columnas nuevas, la consulta de la línea de tiempo las
-  guardaba bien y las devolvía como `undefined`, porque mapeaba las
-  entradas campo a campo.
-- Dentro de un contenedor, `localhost` puede resolver a IPv6 y los
-  servicios escuchan en IPv4. Usa `127.0.0.1` al probar desde dentro.
-- `docker compose up -d --build <servicio>` reconstruye también sus
-  dependencias, incluido el vision-service. Para tocar solo los
-  servicios Node: `docker compose build a b c` y luego
-  `docker compose up -d --no-deps a b c`.
-- **Esta máquina no sirve como banco de pruebas sin cuidado.** El mismo
-  binario dio 2.28 y 0.85 frames/s en la misma sesión, con la carga del
-  sistema pasando de 3.6 a 9.8. Si mides rendimiento: calienta primero
-  (con varios procesos hay que despertarlos a todos con ráfagas
-  concurrentes, o los fríos pagan su primera inferencia y falsean el
-  resultado), repite y usa la mediana, y compara configuraciones
-  **seguidas**, nunca contra un número de hace media hora.
-- Docker Desktop se cae solo en esta máquina de vez en cuando. Si algo
-  deja de responder, compruébalo antes de buscar el fallo en el código.
-- La resolución de DNS de Docker Hub falla a ratos en esta máquina
-  (`lookup auth.docker.io: no such host`). No es el proyecto: reintenta
-  el `docker compose build` y a la segunda suele ir.
-- **Cuidado al lanzar `node scripts/ci-local.mjs` sin `--rapido` y
-  cortarlo.** Hace `npm ci` servicio por servicio, y si se interrumpe
-  en medio deja un `node_modules` a medias que después falla con
-  `ENOTEMPTY`. Se arregla con `rm -rf node_modules && npm ci`.
-- **Un span puede nacer sin registrar y no avisar de nada.** Si un tramo
-  no aparece en la traza y no hay ningún error, sospecha del contexto
-  del que cuelga: derivar de `context.active()` dentro de un bloque con
-  el trazado suprimido hereda la supresión. Ver el ADR 0009.
-- **No mires una métrica de OpenTelemetry por su nombre de Prometheus a
-  ojo.** `otelcol_receiver_accepted_spans` no lleva sufijo `_total` en
-  la versión actual del Collector, y buscarlo con el sufijo da «no hay
-  datos» cuando en realidad todo funciona. Pregunta al endpoint de
-  métricas antes de concluir que algo está roto.
-- **Los límites por defecto de un histograma mienten con educación.**
-  El p95 de una etapa que tarda 400 ms salía 1700 ms porque el bucket
-  iba de 1 s a 2 s. El número no era falso: era la única respuesta
-  posible con esa resolución. Ajusta los límites al rango real del
-  sistema.

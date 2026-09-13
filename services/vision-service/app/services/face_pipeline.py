@@ -22,7 +22,7 @@ from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.telemetry import tracer
 from app.detection.base import FaceDetector
-from app.recognition import quality
+from app.recognition import liveness, quality
 from app.recognition.aligner import FaceAligner
 from app.recognition.embedder import ArcFaceEmbedder
 from app.schemas.vision import (
@@ -30,6 +30,7 @@ from app.schemas.vision import (
     DetectedFace,
     DetectedFaceLite,
     FaceQuality,
+    Liveness,
     ModelInfo,
     VisionAnalyzeResponse,
     VisionDetectOnlyResponse,
@@ -170,6 +171,13 @@ class FacePipeline:
                 with tracer.start_as_current_span("vision.embed") as span:
                     embedding = self._embedder.embed(aligned)
                     span.set_attribute("vision.embedding.dim", len(embedding))
+                # Se mide sobre el recorte YA alineado, que es el mismo
+                # que ve ArcFace: asi el numero significa lo mismo para
+                # una cara cercana y para una lejana.
+                with tracer.start_as_current_span("vision.liveness") as span:
+                    vida = liveness.assess(aligned)
+                    span.set_attribute("vision.liveness.detail_ratio", vida.detail_ratio)
+                    span.set_attribute("vision.liveness.pattern_peak", vida.pattern_peak)
             except Exception as exc:  # noqa: BLE001
                 # Un rostro que falla no debe tumbar el frame completo.
                 logger.warning("fallo_al_embeber_rostro", error=str(exc))
@@ -186,6 +194,10 @@ class FacePipeline:
                         faceHeightPx=report.face_height_px,
                         blurScore=report.blur_score,
                         truncated=report.truncated,
+                    ),
+                    liveness=Liveness(
+                        detailRatio=vida.detail_ratio,
+                        patternPeak=vida.pattern_peak,
                     ),
                 )
             )

@@ -881,19 +881,34 @@ la persona se renombre o se elimine.
 Estas limitaciones son reales y deben conocerse antes de usar el sistema
 en producción.
 
-#### 1. Sin detección de vida (anti-spoofing) — la más importante
+#### 1. Detección de vida SIN VALIDAR — sigue siendo la más importante
 
-**Una fotografía en la pantalla de un móvil superaría la
-autenticación.** La votación multi-frame evita el falso positivo
-puntual, pero no distingue una cara real de una impresa.
+Hay detección de vida pasiva desde la Fase 6, y hay que leer con cuidado
+qué significa eso: **el mecanismo existe y no está validado.**
 
-El sistema **no es apto para control de acceso real** hasta añadirlo. La
-arquitectura está preparada: el paso 8 del pipeline (votación) es donde
-se enchufa, porque ya acumula frames consecutivos.
+Mide dos cosas sobre la textura del rostro —cuánto detalle fino tiene y
+si hay un patrón periódico— y el Access Service decide con ellas. Cuesta
+4.7 ms de los ~1100 de un frame, medido con la traza.
 
-Ampliaciones previstas: detección de vida pasiva, verificación de
-textura/reflejos, análisis de micromovimiento, cámara con profundidad o
-infrarrojos.
+**Por defecto NO deniega.** El modo es `SOFT`: anota la sospecha en
+`acceso_sospechas_de_vida` y deja pasar. El motivo es que nadie ha
+medido su tasa de falso rechazo contra ataques reales, y denegar el paso
+a una persona real con un número sin calibrar es peor que el problema
+que resuelve.
+
+**Lo que NO se pudo demostrar.** Que detenga una foto en un móvil. Para
+eso hace falta un conjunto de ataques reales —fotos impresas, pantallas,
+máscaras— y medir APCER y BPCER; este proyecto no lo tiene. Se intentó
+con un ataque sintético y el intento dejó un hallazgo propio: **el
+detector deja de encontrar la cara antes de que la señal reaccione**. Un
+ataque de pantalla realista no se fabrica degradando una imagen, hay que
+fotografiar una pantalla.
+
+Así que la afirmación honesta sigue siendo la de antes, con un matiz:
+**el sistema no es apto para control de acceso real**, ahora porque su
+defensa contra suplantación no está validada en lugar de no existir. El
+[ADR 0010](docs/adr/0010-deteccion-de-vida.md) detalla qué haría falta
+para encender el modo que sí deniega, y en qué orden.
 
 #### 2. Sin revocación de tokens
 
@@ -973,7 +988,7 @@ El anti-passback se evalúa al reconocer y se aplica tras la votación,
 así que hay aproximadamente un segundo entre leer el estado de presencia
 y escribirlo. En esa ventana solo caben frames de la misma persona, y
 una persona no puede estar en dos puertas a la vez — pero con el
-anti-spoofing todavía pendiente (limitación 1), una fotografía en una
+anti-spoofing sin validar (limitación 1), una fotografía en una
 segunda puerta sí podría colarse por ese hueco.
 
 #### 9. Redis sin alta disponibilidad
@@ -1282,3 +1297,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0007 | Redis Streams para los eventos, y la presencia en el Access Service |
 | 0008 | Cada servicio es dueño de sus tipos; se retira el paquete de contratos |
 | 0009 | Observabilidad con OpenTelemetry, y la traza cruza el bus |
+| 0010 | Detección de vida pasiva, y por qué no deniega por defecto |

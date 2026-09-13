@@ -22,11 +22,30 @@ class FaceQuality(BaseModel):
     truncated: bool
 
 
+class Liveness(BaseModel):
+    """
+    Evidencia de vida. NO es un veredicto.
+
+    Son medidas crudas sobre la textura del rostro; quien decide que
+    significan es el Access Service, porque un umbral de seguridad es
+    politica y este servicio no tiene politica.
+    """
+
+    #: Energia en frecuencias altas frente al total util. Cae con una
+    #: reimpresion o una foto de una foto.
+    detailRatio: float
+
+    #: Fuerza del pico periodico mas marcado en la banda alta. Sube con
+    #: la rejilla de una pantalla y con la recompresion JPEG.
+    patternPeak: float
+
+
 class DetectedFace(BaseModel):
     bbox: BoundingBox
     detectionScore: float = Field(ge=0, le=1)
     embedding: list[float]
     quality: FaceQuality
+    liveness: Liveness
 
 
 class ModelInfo(BaseModel):
