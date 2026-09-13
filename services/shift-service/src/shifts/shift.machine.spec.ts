@@ -1,4 +1,5 @@
 import {
+  applyManualChange,
   applyPassage,
   businessDateOf,
   resolvePause,
@@ -320,5 +321,96 @@ describe('businessDateOf', () => {
     // horas de una sede al día equivocado.
     expect(() => businessDateOf(AT('2026-09-12T23:00:00Z'), 'Marte/Olympus'))
       .toThrow();
+  });
+});
+
+describe('applyManualChange', () => {
+  const AT_START = AT('2026-09-12T13:00:00Z');
+  const AT_NOW = AT('2026-09-12T14:00:00Z');
+
+  it('quien está en turno puede declarar un descanso', () => {
+    const result = applyManualChange(
+      snapshot({ state: 'EN_TURNO', stateSince: AT_START }),
+      'START_BREAK',
+      AT_NOW,
+    );
+
+    expect(result).toEqual({
+      action: 'UPDATE',
+      state: 'EN_DESCANSO',
+      workedDelta: 3600,
+      breakDelta: 0,
+    });
+  });
+
+  it('quien está de descanso puede volver al trabajo', () => {
+    const result = applyManualChange(
+      snapshot({ state: 'EN_DESCANSO', stateSince: AT_START }),
+      'END_BREAK',
+      AT_NOW,
+    );
+
+    expect(result).toEqual({
+      action: 'UPDATE',
+      state: 'EN_TURNO',
+      workedDelta: 0,
+      breakDelta: 3600,
+    });
+  });
+
+  it('no se puede declarar un descanso sin jornada abierta', () => {
+    // Entrar es cosa de la cámara: un botón que abriera jornada
+    // convertiría el control de acceso en un adorno.
+    expect(applyManualChange(null, 'START_BREAK', AT_NOW)).toEqual({
+      action: 'REJECT',
+      reason: 'NO_OPEN_DAY',
+    });
+  });
+
+  it('tampoco con la jornada ya cerrada', () => {
+    expect(
+      applyManualChange(snapshot({ state: 'FUERA' }), 'START_BREAK', AT_NOW),
+    ).toEqual({ action: 'REJECT', reason: 'NO_OPEN_DAY' });
+  });
+
+  it('no se encadenan dos descansos', () => {
+    expect(
+      applyManualChange(
+        snapshot({ state: 'EN_DESCANSO' }),
+        'START_BREAK',
+        AT_NOW,
+      ),
+    ).toEqual({ action: 'REJECT', reason: 'ALREADY_ON_BREAK' });
+  });
+
+  it('no se termina un descanso que no empezó', () => {
+    expect(
+      applyManualChange(snapshot({ state: 'EN_TURNO' }), 'END_BREAK', AT_NOW),
+    ).toEqual({ action: 'REJECT', reason: 'NOT_ON_BREAK' });
+  });
+
+  it('quien está fuera de la sede no puede declarar nada', () => {
+    // Su vuelta la registra la puerta. Permitirlo desde el móvil sería
+    // dejarle fichar sin estar.
+    for (const change of ['START_BREAK', 'END_BREAK'] as const) {
+      expect(
+        applyManualChange(snapshot({ state: 'EN_PAUSA' }), change, AT_NOW),
+      ).toEqual({ action: 'REJECT', reason: 'OUTSIDE_SITE' });
+    }
+  });
+
+  it('no resta tiempo si el reloj va hacia atrás', () => {
+    const result = applyManualChange(
+      snapshot({ state: 'EN_TURNO', stateSince: AT_NOW }),
+      'START_BREAK',
+      AT_START,
+    );
+
+    expect(result).toEqual({
+      action: 'UPDATE',
+      state: 'EN_DESCANSO',
+      workedDelta: 0,
+      breakDelta: 0,
+    });
   });
 });

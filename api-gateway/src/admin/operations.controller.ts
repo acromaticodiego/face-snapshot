@@ -63,6 +63,36 @@ export class AdminOperationsController {
     return this.shifts.openShifts({ siteId, state });
   }
 
+  @Get('stats/denials')
+  @ApiOperation({ summary: 'Accesos denegados, agrupados por motivo' })
+  @ApiQuery({ name: 'days', required: false })
+  @ApiQuery({ name: 'siteId', required: false })
+  denials(@Query('days') days?: string, @Query('siteId') siteId?: string) {
+    return this.access.stats('denials', { days, siteId });
+  }
+
+  @Get('stats/similarity')
+  @ApiOperation({
+    summary: 'Distribución de similitudes y margen del umbral en uso',
+    description:
+      'Las dos nubes están separadas por el propio umbral, así que de ' +
+      'aquí NO salen tasas de error: sale el margen que queda a cada ' +
+      'lado, que es lo que avisa de si el umbral va justo.',
+  })
+  @ApiQuery({ name: 'days', required: false })
+  @ApiQuery({ name: 'siteId', required: false })
+  similarity(@Query('days') days?: string, @Query('siteId') siteId?: string) {
+    return this.access.stats('similarity', { days, siteId });
+  }
+
+  @Get('stats/hourly')
+  @ApiOperation({ summary: 'Actividad por día de la semana y hora local' })
+  @ApiQuery({ name: 'days', required: false })
+  @ApiQuery({ name: 'siteId', required: false })
+  hourly(@Query('days') days?: string, @Query('siteId') siteId?: string) {
+    return this.access.stats('hourly', { days, siteId });
+  }
+
   @Get('shifts/:personId/timeline')
   @ApiOperation({ summary: 'Línea de tiempo de la jornada de una persona' })
   @ApiQuery({ name: 'date', required: false, description: 'AAAA-MM-DD' })

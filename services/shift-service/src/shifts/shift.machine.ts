@@ -277,3 +277,94 @@ export function businessDateOf(at: Date, timezone: string): string {
   }
   return date;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  Cambios declarados por la persona
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * POR QUE HACEN FALTA SI YA ESTAN LAS PUERTAS
+ * ───────────────────────────────────────────
+ * Porque no todo descanso pasa por un lector. Ir al baño, bajar a por
+ * un café o quedarse comiendo en el propio puesto no cruzan ninguna
+ * puerta, y sin embargo son interrupciones reales de la jornada. Si el
+ * único modo de registrarlas fuera pasar por una zona marcada como de
+ * descanso, la hoja de horas contaría como trabajado todo lo que
+ * ocurriera dentro del edificio.
+ *
+ * ESTO NO ROMPE LA SEPARACION ENTRE LOS DOS DOMINIOS
+ * ──────────────────────────────────────────────────
+ * Al contrario: la confirma. Declarar un descanso NO abre ninguna
+ * puerta y no toca la presencia física, que sigue diciendo la verdad
+ * —la persona continúa dentro de su zona—. Solo cambia la
+ * interpretación laboral, que es justo lo que este servicio posee.
+ *
+ * QUE NO SE PUEDE DECLARAR
+ * ────────────────────────
+ * Ni entrar ni salir. Eso lo decide el Access Service con una cara
+ * delante de una cámara, y un botón que permitiera fichar la entrada
+ * convertiría todo el control de acceso en un adorno.
+ */
+
+export type ManualAction = 'START_BREAK' | 'END_BREAK';
+
+export type ManualRejection =
+  /** No hay jornada abierta: hay que entrar por una puerta primero. */
+  | 'NO_OPEN_DAY'
+  | 'ALREADY_ON_BREAK'
+  | 'NOT_ON_BREAK'
+  /** Está fuera de la sede; su vuelta la registra la puerta. */
+  | 'OUTSIDE_SITE';
+
+export type ManualDecision =
+  | {
+      action: 'UPDATE';
+      state: ShiftState;
+      workedDelta: number;
+      breakDelta: number;
+    }
+  | { action: 'REJECT'; reason: ManualRejection };
+
+export function applyManualChange(
+  snapshot: ShiftSnapshot | null,
+  change: ManualAction,
+  at: Date,
+): ManualDecision {
+  if (!snapshot) return { action: 'REJECT', reason: 'NO_OPEN_DAY' };
+
+  // Quien está de pausa salió del edificio: su vuelta la registra la
+  // puerta, no un botón. Dejarle "terminar el descanso" desde el móvil
+  // sería dejarle fichar sin estar.
+  if (snapshot.state === 'EN_PAUSA') {
+    return { action: 'REJECT', reason: 'OUTSIDE_SITE' };
+  }
+
+  // Sin jornada viva no hay estado que cambiar. `FUERA` con instantánea
+  // solo puede venir de una jornada ya cerrada.
+  if (snapshot.state === 'FUERA') {
+    return { action: 'REJECT', reason: 'NO_OPEN_DAY' };
+  }
+
+  const elapsed = secondsBetween(snapshot.stateSince, at);
+
+  if (change === 'START_BREAK') {
+    if (snapshot.state === 'EN_DESCANSO') {
+      return { action: 'REJECT', reason: 'ALREADY_ON_BREAK' };
+    }
+    return {
+      action: 'UPDATE',
+      state: 'EN_DESCANSO',
+      ...accrue(snapshot.state, elapsed),
+    };
+  }
+
+  if (snapshot.state !== 'EN_DESCANSO') {
+    return { action: 'REJECT', reason: 'NOT_ON_BREAK' };
+  }
+
+  return {
+    action: 'UPDATE',
+    state: 'EN_TURNO',
+    ...accrue(snapshot.state, elapsed),
+  };
+}

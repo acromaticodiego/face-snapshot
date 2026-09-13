@@ -44,7 +44,7 @@ una cámara, el sistema decide si puede entrar según su rol, la zona y
 el horario, y registra el acceso.
 
 Arquitectura de microservicios, funcionando de extremo a extremo.
-**Fases 1 y 2 completadas.**
+**Fases 1, 2 y 3 completadas.** La siguiente es la 4: observabilidad.
 
 ---
 
@@ -104,6 +104,27 @@ frame JPEG
 personas distintas −0.08–0.24. El mapeo de landmarks 106→5
 (`[33, 96, 86, 65, 61]`) se derivó empíricamente comparando contra los
 puntos nativos de SCRFD, no de documentación.
+
+### Interfaz (Fase 3)
+
+- **`/home`** tras identificarse: estado de turno, hora de entrada,
+  horas trabajadas y de descanso, y la línea de tiempo del día. Se lee
+  con el token de sesión facial; el identificador de la persona no
+  viaja en la petición, lo deduce el Gateway del token.
+- **`/admin/dashboard`**: aforo, actividad reciente, denegaciones por
+  motivo, distribución de similitudes y mapa de actividad por hora.
+  Exige cuenta de administración porque muestra datos de terceros.
+- Tres endpoints de estadísticas nuevos en el Access Service, agregados
+  en SQL.
+
+**El hallazgo de esta fase.** El análisis del umbral con datos reales
+da **0.0641** de separación entre nubes, frente al 0.2552 que midió el
+ADR 0003 sobre fotos de archivo. Cuatro veces menos margen. Y el
+camino hasta ese número también importa: la primera versión contaba
+falsos rechazos y falsas aceptaciones, y salían cero siempre porque
+las dos nubes las separa el propio umbral que se evalúa. Está
+explicado en `threshold.analysis.ts`; **no lo "arregles" volviendo a
+contar tasas de error**.
 
 ### Presencia y jornada (Fase 2)
 
@@ -171,11 +192,15 @@ fallos**:
 
 1. **Sin anti-spoofing.** Una foto en un móvil pasaría la
    autenticación. El sistema no es apto para producción real.
-2. **Cobertura de tests desigual.** Hay 111 tests sobre las piezas que
-   deciden algo: política de acceso (31), votación (12), anti-passback
-   (19), contrato del evento (9), relay de la outbox (8), máquina de
-   turnos (25) y parser del evento (7). Todas son funciones puras o con
-   dobles, así que corren en segundos y sin contenedores.
+2. **Cobertura de tests desigual.** Hay 124 tests sobre las piezas que
+   deciden o afirman algo: política de acceso (31), votación (12),
+   anti-passback (19), análisis del umbral (13), contrato del evento
+   (9), relay de la outbox (8), máquina de turnos (25) y parser del
+   evento (7). Todas son funciones puras o con dobles, así que corren
+   en segundos y sin contenedores.
+
+   **El frontend no tiene ninguna prueba.** Es la brecha más visible
+   ahora que hay dos pantallas con lógica de presentación real.
 
    Lo que **sigue sin tests** es el pipeline de reconocimiento y el
    enrolamiento, que necesitan imágenes y modelos reales. La prueba de
@@ -186,8 +211,10 @@ fallos**:
    shift-service: con varios, los eventos de una persona podrían
    procesarse a destiempo (la máquina descarta lo desordenado, así que
    perdería transiciones y no las corrompería).
-5. **Umbral 0.38 sin calibrar con la cámara real.** Se eligió con datos
-   de fotos de archivo.
+5. **El umbral 0.38 va ajustado.** Ya está medido con datos reales: la
+   separación entre nubes es 0.0641 y no el 0.2552 de las fotos de
+   archivo. El panel lo muestra. Lo que hace falta no es cambiar el
+   número, es mejorar la captura.
 6. **Las migraciones se escriben a mano** a propósito: no crean schemas
    ni extensiones (eso lo hace el init de PostgreSQL como superusuario),
    lo que impide que Prisma use su base de datos sombra. Está explicado
@@ -219,13 +246,16 @@ Plan acordado, en orden:
 Todo lo previsto, más el detalle de dónde vive la presencia, que era la
 decisión de fondo. Ver [ADR 0007](adr/0007-eventos-y-presencia.md).
 
-### Fase 3 — Home y Dashboard
-- `/home` tras verificarse: saludo, hora de entrada, horas acumuladas,
-  y un botón a la derecha que lleva al Dashboard
-- Dashboard de operación: aforo en tiempo real, **distribución de
-  similitudes intra vs inter persona** (convierte el umbral en una
-  decisión con datos), accesos denegados por motivo, feed en vivo,
-  mapa de calor por hora
+### ~~Fase 3 — Home y Dashboard~~ · HECHA
+
+Todo lo previsto. El feed es por sondeo cada cinco segundos y no un
+flujo en vivo: un stream obligaría al Gateway a mantener una conexión
+abierta por pestaña, y cinco segundos no cambian ninguna decisión en un
+panel que se mira de reojo.
+
+Sin librería de gráficos: el histograma son barras y el mapa de calor
+una cuadrícula, y tematizar Recharts para el cristal esmerilado era más
+código que dibujarlos.
 
 ### Fase 4 — Observabilidad
 - OpenTelemetry en los 5 servicios + Prometheus + Grafana

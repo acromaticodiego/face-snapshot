@@ -109,6 +109,12 @@ export class ShiftsQuery {
           direction: entry.direction,
           zoneName: entry.zoneName,
           accessPointName: entry.accessPointName,
+          // Quién provocó la transición y por qué. Sin esto, la línea
+          // de tiempo no distingue un descanso que declaró la persona
+          // de uno deducido de un paso por la cafetería, que es
+          // justamente lo que hay que ver al revisar una jornada rara.
+          origin: entry.origin,
+          note: entry.note,
         })),
       })),
     };

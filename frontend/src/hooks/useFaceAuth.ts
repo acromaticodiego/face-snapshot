@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api, ApiError } from '@/lib/api';
-import type { AccessReason, FaceVerdict, VerifyFrameResponse } from '@/lib/api';
+import type {
+  AccessReason,
+  FaceVerdict,
+  Passage,
+  VerifyFrameResponse,
+} from '@/lib/api';
 
 export type AuthPhase =
   | 'idle'
@@ -16,7 +21,12 @@ interface UseFaceAuthOptions {
   captureFrame: () => Promise<Blob | null>;
   enabled: boolean;
   fps?: number;
-  onGranted?: (person: { id: string; name: string }, token?: string) => void;
+  onGranted?: (
+    person: { id: string; name: string },
+    token?: string,
+    /** Si el acceso fue una entrada o una salida. */
+    passage?: Passage,
+  ) => void;
 }
 
 const MESSAGES: Record<AccessReason, string> = {
@@ -94,7 +104,7 @@ export function useFaceAuth({
       setPerson(result.person);
       setPhase('granted');
       setMessage(`Bienvenido, ${result.person.name.split(' ')[0]}`);
-      onGrantedRef.current?.(result.person, result.accessToken);
+      onGrantedRef.current?.(result.person, result.accessToken, result.passage);
       return true;
     }
 

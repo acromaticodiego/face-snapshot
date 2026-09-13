@@ -68,6 +68,19 @@ enum ShiftClosedBy {
   @@schema("shift_svc")
 }
 
+/// De donde sale una entrada de la linea de tiempo.
+enum ShiftEntryOrigin {
+  /// La provoco un paso por una puerta.
+  ACCESS
+  /// La declaro la propia persona: un descanso que no cruza ningun
+  /// lector -el bano, un cafe, comer en el puesto-.
+  MANUAL
+  /// La genero el reconciliador al cerrar una jornada.
+  SYSTEM
+
+  @@schema("shift_svc")
+}
+
 /// Una jornada de trabajo.
 ///
 /// Se abre con la primera entrada del dia y se cierra cuando la
@@ -148,6 +161,16 @@ model TimelineEntry {
 
   fromState ShiftState @map("from_state")
   toState   ShiftState @map("to_state")
+
+  /// Quien provoco la transicion.
+  ///
+  /// Importa para auditar: un descanso declarado por la persona y uno
+  /// deducido de un paso por la cafeteria valen lo mismo para la hoja
+  /// de horas, pero no para quien revisa una jornada rara.
+  origin ShiftEntryOrigin @default(ACCESS)
+
+  /// Motivo declarado, solo en las entradas manuales.
+  note String? @db.VarChar(80)
 
   /// Contexto del paso. Nulo cuando la entrada no viene de una puerta.
   direction       String? @db.VarChar(3)
