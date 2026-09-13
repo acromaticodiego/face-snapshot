@@ -26,6 +26,7 @@ import {
   inMemoryVoteWindowStoreProvider,
   voteWindowStoreProvider,
 } from './verification/vote-window.providers';
+import { DomainMetrics } from './telemetry/domain.metrics';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import {
   ],
   providers: [
     PrismaService,
+    DomainMetrics,
     VerificationService,
     inMemoryVoteWindowStoreProvider,
     voteWindowStoreProvider,

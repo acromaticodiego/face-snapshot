@@ -13,6 +13,7 @@ import {
   UploadedImage,
   validateUploadedImage,
 } from '../common/uploaded-image';
+import { DomainMetrics } from '../telemetry/domain.metrics';
 import { VerificationService } from './verification.service';
 
 @ApiTags('verification')
@@ -22,6 +23,7 @@ export class VerificationController {
 
   constructor(
     private readonly verification: VerificationService,
+    private readonly metrics: DomainMetrics,
     config: ConfigService,
   ) {
     this.maxImageBytes = Number(config.get('MAX_IMAGE_SIZE_MB', 8)) * 1024 * 1024;
@@ -45,7 +47,7 @@ export class VerificationController {
   ) {
     const image = validateUploadedImage(file, this.maxImageBytes);
 
-    return this.verification.verifyFrame({
+    const result = await this.verification.verifyFrame({
       image: image.buffer,
       filename: image.originalname,
       mimetype: image.mimetype,
@@ -55,5 +57,26 @@ export class VerificationController {
       // el permiso depende de la zona, no solo de la persona.
       terminalKey: terminalKey || '',
     });
+
+    // Se mide AQUI, sobre el resultado final, y no en cada uno de los
+    // diez y pico puntos donde el servicio decide denegar. Un contador
+    // repartido por todas las salidas de un método se desincroniza en
+    // cuanto alguien añade un motivo nuevo y se olvida de una; sobre el
+    // valor devuelto, medir lo que se responde es imposible de
+    // desincronizar de lo que se responde.
+    this.metrics.registrarDecision(
+      result.reason,
+      result.location?.site ?? 'desconocida',
+      result.location?.zone ?? 'desconocida',
+    );
+
+    // Solo si hubo rostro que comparar. Contar un 0 por cada frame sin
+    // cara arrastraría la distribución hacia abajo y el histograma
+    // dejaría de decir nada sobre el margen del umbral.
+    if (result.faces.length > 0) {
+      this.metrics.registrarSimilitud(result.confidence);
+    }
+
+    return result;
   }
 }

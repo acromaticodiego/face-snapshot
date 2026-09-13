@@ -1,3 +1,9 @@
+// La telemetria se arranca ANTES que ninguna otra cosa: las
+// instrumentaciones parchean modulos al cargarse, y un parche que llega
+// despues de que Nest haya cargado express no instrumenta nada. No
+// falla, simplemente no aparece ninguna traza.
+import './telemetry';
+
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';

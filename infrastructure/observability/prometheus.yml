@@ -1,0 +1,35 @@
+# ══════════════════════════════════════════════════════════════════
+#  Prometheus
+#
+#  Raspa un unico sitio: el puerto que expone el Collector. Los
+#  servicios NO exponen /metrics propio, y es deliberado: si lo
+#  hicieran, Prometheus tendria que conocer la topologia entera y
+#  añadir una replica obligaria a tocar este archivo. Con el colector
+#  en medio, la lista de objetivos no cambia nunca.
+#
+#  Lo que sale por ese puerto son dos familias:
+#   · metricas RED derivadas de las trazas (conector spanmetrics)
+#   · metricas de DOMINIO que ninguna traza puede dar: decisiones por
+#     motivo, similitudes, aforo, retraso de la outbox y del consumidor
+# ══════════════════════════════════════════════════════════════════
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    # El colector emite en formato OpenMetrics para conservar los
+    # exemplars, que son los que permiten saltar de un pico de latencia
+    # a la traza concreta que lo causo.
+    honor_labels: true
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # El propio colector, para saber si esta descartando telemetria.
+  # Sin esto, un colector saturado se ve como "no pasa nada" en los
+  # paneles, que es la peor forma de fallar que tiene un sistema de
+  # observabilidad.
+  - job_name: otel-collector-interno
+    static_configs:
+      - targets: ['otel-collector:8888']

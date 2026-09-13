@@ -6,10 +6,23 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  context,
+  propagation,
+  ROOT_CONTEXT,
+  type Span,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from '@opentelemetry/api';
+import { suppressTracing } from '@opentelemetry/core';
 
 import { ShiftsService } from '../shifts/shifts.service';
 import { REDIS_CLIENT, type OptionalRedis } from '../redis/redis.module';
-import { parseAccessGrantedEvent } from './access-event.parser';
+import {
+  parseAccessGrantedEvent,
+  traceparentDelMensaje,
+} from './access-event.parser';
 
 /**
  * Consume los eventos de acceso desde Redis Streams.
@@ -50,6 +63,8 @@ import { parseAccessGrantedEvent } from './access-event.parser';
  */
 
 const CONSUMER_GROUP = 'shift-service';
+
+const tracer = trace.getTracer('access-events-consumer');
 
 @Injectable()
 export class AccessEventsConsumer implements OnModuleInit, OnModuleDestroy {
@@ -156,17 +171,27 @@ export class AccessEventsConsumer implements OnModuleInit, OnModuleDestroy {
     // `>` significa "solo mensajes que nadie de este grupo ha recibido
     // todavía". `BLOCK` deja la conexión esperando en el servidor en
     // vez de preguntar en bucle.
-    const response = await this.redis!.xreadgroup(
-      'GROUP',
-      CONSUMER_GROUP,
-      this.consumerName,
-      'COUNT',
-      this.batchSize,
-      'BLOCK',
-      this.blockMs,
-      'STREAMS',
-      this.stream,
-      '>',
+    //
+    // LA ESPERA NO SE TRAZA. Este bucle gira cada cinco segundos haya
+    // o no mensajes, y cada vuelta generaría un span raíz de cinco
+    // segundos: diecisiete mil trazas diarias que solo dicen "no había
+    // nada". La traza de un evento se abre en `handle`, colgando de la
+    // que lo originó, y no de esta espera.
+    const response = await context.with(
+      suppressTracing(context.active()),
+      () =>
+        this.redis!.xreadgroup(
+          'GROUP',
+          CONSUMER_GROUP,
+          this.consumerName,
+          'COUNT',
+          this.batchSize,
+          'BLOCK',
+          this.blockMs,
+          'STREAMS',
+          this.stream,
+          '>',
+        ),
     );
 
     if (!response) return;
@@ -183,14 +208,20 @@ export class AccessEventsConsumer implements OnModuleInit, OnModuleDestroy {
    * recibir un paso y escribirlo.
    */
   private async claimStale(): Promise<void> {
-    const [, messages] = (await this.redis!.xautoclaim(
-      this.stream,
-      CONSUMER_GROUP,
-      this.consumerName,
-      this.claimAfterMs,
-      '0',
-      'COUNT',
-      this.batchSize,
+    // Tampoco se traza: gira en cada vuelta y casi siempre vuelve
+    // vacío. Lo que sí se traza es procesar lo que reclame.
+    const [, messages] = (await context.with(
+      suppressTracing(context.active()),
+      () =>
+        this.redis!.xautoclaim(
+          this.stream,
+          CONSUMER_GROUP,
+          this.consumerName,
+          this.claimAfterMs,
+          '0',
+          'COUNT',
+          this.batchSize,
+        ),
     )) as [string, [string, string[]][]];
 
     if (messages.length === 0) return;
@@ -225,18 +256,66 @@ export class AccessEventsConsumer implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
-      try {
-        await this.shifts.applyAccessEvent(event);
-        // XACK solo después de escribir: ver la cabecera del archivo.
-        await this.redis!.xack(this.stream, CONSUMER_GROUP, messageId);
-      } catch (error) {
-        // Sin XACK: el mensaje se queda en la PEL y `xautoclaim` lo
-        // recuperará. Es lo correcto ante un fallo transitorio de la
-        // base de datos.
-        this.logger.error(
-          `No se pudo aplicar el evento ${event.eventId}: ${(error as Error).message}`,
-        );
+      // El span cuelga de la traza que concedió el acceso, no de este
+      // bucle. Es lo que hace que una sola traza vaya del frame hasta
+      // la transición de turno, cruzando el bus por el medio.
+      const traceparent = traceparentDelMensaje(fields);
+      // Desde ROOT_CONTEXT, no desde el activo: el único padre legítimo
+      // de este span es el que viaja en el mensaje. Derivar del
+      // contexto ambiente arrastraría lo que hubiera en el bucle de
+      // consumo —incluida la supresión de trazado de la espera— y el
+      // span nacería sin registrar.
+      const padre = traceparent
+        ? propagation.extract(ROOT_CONTEXT, { traceparent })
+        : null;
+
+      const procesar = async (span?: Span): Promise<void> => {
+        try {
+          await this.shifts.applyAccessEvent(event);
+          // XACK solo después de escribir: ver la cabecera del archivo.
+          await this.redis!.xack(this.stream, CONSUMER_GROUP, messageId);
+        } catch (error) {
+          // Sin XACK: el mensaje se queda en la PEL y `xautoclaim` lo
+          // recuperará. Es lo correcto ante un fallo transitorio de la
+          // base de datos.
+          span?.recordException(error as Error);
+          span?.setStatus({ code: SpanStatusCode.ERROR });
+          this.logger.error(
+            `No se pudo aplicar el evento ${event.eventId}: ${(error as Error).message}`,
+          );
+        } finally {
+          span?.end();
+        }
+      };
+
+      if (!padre) {
+        // Evento publicado sin telemetría. Se procesa igual y sin span:
+        // la jornada de alguien no depende de que haya trazas.
+        await procesar();
+        continue;
       }
+
+      await tracer.startActiveSpan(
+        `${this.stream} process`,
+        {
+          kind: SpanKind.CONSUMER,
+          attributes: {
+            'messaging.system': 'redis',
+            'messaging.operation.name': 'process',
+            'messaging.destination.name': this.stream,
+            'messaging.consumer.group.name': CONSUMER_GROUP,
+            'messaging.message.id': event.eventId,
+            'event.type': event.type,
+            // El efecto sobre la jornada: es lo que convierte el span
+            // en algo que se lee sin abrir la base de datos.
+            'shift.direction': event.direction,
+            'shift.zone_effect': event.zoneShiftEffect,
+            'shift.still_inside_site': event.stillInsideSite,
+          },
+        },
+        padre,
+        procesar,
+      );
     }
   }
 }

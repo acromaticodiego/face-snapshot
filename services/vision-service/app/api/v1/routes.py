@@ -10,6 +10,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 from fastapi import APIRouter, File, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from app.core.errors import ImageTooLargeError, InvalidImageError
 from app.schemas.vision import (
@@ -21,6 +22,36 @@ from app.schemas.vision import (
 router = APIRouter()
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+
+
+# ══════════════════════════════════════════════════════════════════
+#  POR QUE LA INFERENCIA NO PUEDE CORRER EN EL BUCLE DE EVENTOS
+#
+#  Estos manejadores son `async def`, asi que FastAPI los ejecuta EN
+#  el bucle de eventos. El pipeline, en cambio, es trabajo de CPU
+#  bloqueante: unos 750 ms por frame. Llamarlo directamente desde aqui
+#  congela el bucle entero mientras dura, y con el se congela todo lo
+#  demas que el proceso tenga que atender.
+#
+#  Lo que eso costaba, medido antes de este cambio:
+#
+#      /health en reposo ................     1 ms
+#      /health con 4 frames en vuelo ....  3077 ms
+#
+#  El HEALTHCHECK de Docker tiene un plazo de 5 s. Con ocho frames
+#  encolados lo supera, Docker marca el contenedor como enfermo y lo
+#  reinicia, perdiendo los modelos cargados. Carga -> reinicio -> mas
+#  carga: exactamente la forma de fallar que convierte un pico de
+#  trafico en una caida.
+#
+#  Es la misma leccion que ya dejo el /health del Shift Service con
+#  Redis caido: una sonda nunca debe poder colgarse.
+#
+#  `run_in_threadpool` saca el trabajo pesado a un hilo aparte y deja
+#  el bucle libre para responder. No es una optimizacion de
+#  rendimiento: es lo que impide que el servicio se autodestruya bajo
+#  carga.
+# ══════════════════════════════════════════════════════════════════
 
 
 async def _read_image(request: Request, file: UploadFile) -> np.ndarray:
@@ -76,7 +107,7 @@ async def detect_faces(
     generar ni mover datos biométricos.
     """
     image = await _read_image(request, file)
-    return request.app.state.pipeline.detect_only(image)
+    return await run_in_threadpool(request.app.state.pipeline.detect_only, image)
 
 
 @router.post("/faces/analyze", response_model=VisionAnalyzeResponse, tags=["faces"])
@@ -90,4 +121,4 @@ async def analyze_faces(
     consumirla el Face Service, nunca el navegador.
     """
     image = await _read_image(request, file)
-    return request.app.state.pipeline.analyze(image)
+    return await run_in_threadpool(request.app.state.pipeline.analyze, image)

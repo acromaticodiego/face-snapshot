@@ -365,14 +365,16 @@ backend_detector/
 ├── frontend/                 React + Vite + TypeScript
 │   └── src/
 │       ├── pages/            autenticación, bienvenida, administración
-│       ├── components/       visor, cajas, diálogo de captura, UI
+│       ├── components/       visor, cajas, asistente de alta, UI
 │       ├── hooks/            cámara y bucle de autenticación
 │       └── lib/              cliente de API
 │
 ├── modelos/                  rostros.pt (solo lectura)
 ├── infrastructure/
 │   ├── docker/               Dockerfile común de NestJS
-│   └── postgres/init/        schemas, roles y permisos
+│   ├── postgres/init/        schemas, roles y permisos
+│   └── observability/        colector, Tempo, Prometheus y Grafana
+│       └── grafana/          fuentes de datos y paneles, como código
 ├── docs/adr/                 decisiones de arquitectura
 ├── docker-compose.yml
 ├── TECHNOLOGIES.md
@@ -578,18 +580,54 @@ aparece.
 
 ## Cómo registrar una persona
 
-1. Inicia sesión y entra en **http://localhost:5173/admin/faces**.
-2. Escribe el nombre (y opcionalmente un identificador) y pulsa *Crear*.
-3. Se abre la captura automáticamente. Colócate de frente, con buena luz.
-4. Pulsa *Capturar*, revisa la imagen y pulsa *Registrar*.
-5. El backend detecta el rostro, genera el vector y lo asocia a la
-   persona. **La fotografía se descarta.**
+El alta es un asistente de **tres pasos**, y los tres hacen falta:
 
-El registro se rechaza si: no hay rostro, hay más de uno, la calidad es
-baja, o el rostro aparece cortado. Cada rechazo indica el motivo.
+1. Inicia sesión y entra en **http://localhost:5173/admin/faces**.
+2. Pulsa *Nueva alta*.
+3. **Datos.** Nombre y, opcionalmente, un identificador.
+4. **Rol.** Se elige de la lista, que muestra debajo de cada rol las
+   zonas y horarios que habilita: lo que decide si alguien pasa no es
+   el nombre del rol, son sus permisos.
+5. **Rostro.** Colócate de frente y con buena luz, pulsa *Capturar*,
+   revisa la imagen y pulsa *Registrar*. El backend detecta el rostro,
+   genera el vector y lo asocia a la persona. **La fotografía se
+   descarta.**
+
+El registro del rostro se rechaza si: no hay rostro, hay más de uno, la
+calidad es baja, o el rostro aparece cortado. Cada rechazo indica el
+motivo.
 
 Puedes registrar varios rostros por persona (distintas condiciones de
 luz o gafas) para mejorar el reconocimiento.
+
+### Por qué el rol va en el alta, y no aparte
+
+Una persona sin rol es un **registro inútil**: el sistema la reconoce y
+no la deja pasar por ninguna puerta. Cuando el alta solo pedía el
+nombre, eso pasaba sin que nadie se enterase, y `NO_ROLE_ASSIGNED` se
+convirtió en la segunda causa de denegación del despliegue.
+
+Dar de alta a alguien son tres escrituras en **dos servicios** —la
+identidad vive en el Face Service y el rol en el Access Service— y no
+hay ninguna transacción que las abarque. La respuesta no es montar una
+transacción distribuida para tres llamadas, sino hacer el estado
+incompleto **visible y retomable**:
+
+- La lista marca en ámbar a quien le falte el rol o el rostro.
+- El botón de cada fila lleva **al paso que le falta**, no siempre a la
+  captura.
+- El rostro va el último a propósito: es el paso lento y el que más
+  falla, así que una interrupción deja como mucho a alguien creado y con
+  rol, que es un estado visible y que se retoma en un clic.
+
+Lo que **no** se hizo es exigir el rol en el Face Service. Obligaría a
+que el servicio de identidades llamase al de acceso, invirtiendo la
+única dirección de dependencia que hoy está limpia. Un rol es una
+decisión del dominio de acceso; el Face Service no tiene por qué saber
+que existen.
+
+Queda una consecuencia asumida: **por API todavía se puede crear a
+alguien sin rol.** Es el asistente quien lo exige, no el servidor.
 
 ---
 
@@ -681,9 +719,9 @@ propio inicio de sesión.
 |---|---|---|
 | `POST` | `/admin/auth/login` | Inicia sesión, devuelve el token |
 | `GET` | `/admin/auth/me` | Comprueba el token y devuelve el administrador |
-| `GET` | `/admin/persons` | Lista personas (`?search=`, `?skip=`, `?take=`) |
+| `GET` | `/admin/persons` | Lista personas **con su rol** (`?search=`, `?skip=`, `?take=`) |
 | `POST` | `/admin/persons` | Crea una persona |
-| `GET` | `/admin/persons/:id` | Consulta una persona |
+| `GET` | `/admin/persons/:id` | Consulta una persona con su rol |
 | `PATCH` | `/admin/persons/:id` | Cambia nombre o estado |
 | `DELETE` | `/admin/persons/:id` | Elimina y **borra sus vectores** |
 | `POST` | `/admin/persons/:id/faces` | Enrola un rostro (multipart) |
@@ -691,6 +729,8 @@ propio inicio de sesión.
 | `GET` | `/admin/sites` | Sedes, zonas y puntos de acceso |
 | `GET` | `/admin/roles` | Roles y qué permite cada uno |
 | `POST` | `/admin/persons/:id/roles` | Asigna un rol |
+| `DELETE` | `/admin/persons/:id/roles/:roleId` | Retira un rol |
+| `GET` | `/admin/persons/:id/roles` | Roles asignados a una persona |
 | `GET` | `/admin/presence` | Quién consta dentro y el aforo por zona |
 | `GET` | `/admin/shifts` | Jornadas abiertas y desglose por estado |
 | `GET` | `/admin/shifts/:personId/timeline` | Línea de tiempo de una jornada |
@@ -700,6 +740,22 @@ propio inicio de sesión.
 | `GET` | `/health` | Estado de todos los servicios |
 
 **Ningún endpoint devuelve embeddings.**
+
+> **El listado de personas es el único sitio donde el Gateway compone
+> dos servicios.** La identidad viene del Face Service y el rol del
+> Access Service, porque son dominios distintos, pero quien administra
+> necesita verlos juntos para detectar a quien no puede pasar por
+> ninguna puerta. Unir dos lecturas para una pantalla es trabajo de
+> Gateway; decidir con ellas, no, y aquí no se decide nada.
+>
+> El rol es un dato **accesorio** del listado, y se trata como tal: la
+> consulta lleva un plazo de 2 s propio —mucho más corto que el del
+> resto del cliente— y, si el Access Service no responde, el campo
+> `roles` vuelve como `null` en lugar de romper la pantalla. `null` no
+> es lo mismo que `[]`: lo primero es «no se pudo preguntar» y la
+> interfaz lo pinta apagado; lo segundo es «no tiene ningún rol» y sí
+> es un aviso. Pintarlos igual mandaría al administrador a perseguir un
+> problema que no existe.
 
 ---
 
@@ -928,6 +984,167 @@ a memoria y los eventos esperan en la outbox hasta que vuelva.
 
 ---
 
+## Observabilidad
+
+Los seis servicios exportan trazas y métricas por OTLP a un
+**OpenTelemetry Collector**, que las reparte a **Tempo** (trazas) y a
+**Prometheus** (métricas). **Grafana** las enseña juntas.
+
+```
+  6 servicios ──OTLP──▶ Collector ──▶ Tempo       (trazas)
+                            └───────▶ Prometheus  (métricas) ──▶ Grafana
+```
+
+| Qué | Dónde |
+|---|---|
+| Panel «Control de acceso» | http://localhost:3001 (carpeta *Observabilidad*) |
+| Prometheus | http://localhost:9090 |
+
+Credenciales de Grafana en el `.env` (`GRAFANA_ADMIN_USER` /
+`GRAFANA_ADMIN_PASSWORD`). El puerto es **3001** porque el 3000 lo ocupa
+el Gateway, por la misma razón que PostgreSQL usa el 5433.
+
+### Nada de esto puede dejar a nadie fuera de un edificio
+
+Los cuatro contenedores de observabilidad **no aparecen en ningún
+`depends_on` de los servicios ni en ningún `/health`**. Si el Collector
+deja de responder, los exportadores descartan en silencio con una cola
+acotada y el reconocimiento sigue igual. Convertir una avería de
+telemetría en una avería de control de acceso sería cambiar un problema
+pequeño por uno grave.
+
+Para arrancar sin instrumentación, `OTEL_SDK_DISABLED=true` o dejar
+`OTEL_EXPORTER_OTLP_ENDPOINT` vacío. No hay que tocar código.
+
+### La traza cruza el bus de eventos
+
+Una sola traza va del frame hasta la transición de turno:
+
+```
+api-gateway → access-service → face-service → vision-service
+  → COMMIT de la transacción que escribe la outbox
+  ⟨ hueco de ~450 ms ⟩
+  → access.events publish → xadd
+  → shift-service: access.events process → BEGIN…COMMIT → xack
+```
+
+**Ese hueco no es latencia: es el intervalo de sondeo del relay.** El
+evento ya está confirmado en PostgreSQL y esperando a que lo recojan,
+que es exactamente lo que la outbox transaccional promete.
+
+Funciona porque `outbox_events` guarda el `traceparent` de la petición
+en la **misma transacción** que el evento: cuando el relay publica, un
+segundo después y en otro proceso, la petición original ya no existe.
+El razonamiento completo, y lo que se acepta a cambio, en el
+[ADR 0009](docs/adr/0009-observabilidad-con-opentelemetry.md).
+
+### Dónde se va el tiempo de un frame
+
+La pregunta que el proyecto no podía contestar. Medido sobre el stack
+real (p95):
+
+| Etapa | p95 | |
+|---|---|---|
+| Petición completa | ~1 s | |
+| `vision.detect` (rostros.pt) | ~740 ms | **el cuello de botella** |
+| `vision.embed` (ArcFace) | ~450 ms | |
+| `vision.align` | ~31 ms | |
+| Búsqueda en pgvector | ~1.2 ms | no interviene |
+
+El coste está en el **detector**, no en el embedding. Y la búsqueda
+vectorial —la sospechosa intuitiva, la que justifica el índice HNSW—
+cuesta algo más de un milisegundo. Importa porque el margen del umbral
+es estrecho (limitación 5) y lo que hace falta no es cambiar el número
+sino mejorar la captura: esto dice de qué presupuesto se dispone y de
+dónde habría que sacarlo.
+
+> Son contenedores sin GPU en un portátil. Lo que vale es la
+> **proporción entre etapas**, no los valores absolutos.
+
+### El techo de capacidad, y por qué existe
+
+Lo primero que enseñó la observabilidad no fue una latencia, fue un
+**fallo en cascada esperando a ocurrir**.
+
+Los manejadores del Vision Service eran `async def` pero dentro
+llamaban al pipeline, que son cientos de milisegundos de CPU
+bloqueante. Eso ocupa el bucle de eventos entero, y con él se congela
+todo lo demás que el proceso tenga que atender:
+
+| `/health` del Vision Service | Antes | Después |
+|---|---|---|
+| En reposo | 1 ms | 1 ms |
+| Con frames en vuelo | **3077 ms** | **418 ms** |
+
+El `HEALTHCHECK` de Docker tiene un plazo de 5 s. Con suficientes
+frames encolados lo superaba, Docker marcaba el contenedor como enfermo
+y lo reiniciaba, perdiendo los modelos cargados. Carga → reinicio → más
+carga. Es la misma lección que dejó el `/health` del Shift Service con
+Redis caído: **una sonda nunca debe poder colgarse.**
+
+El arreglo es sacar la inferencia a un hilo con `run_in_threadpool`.
+
+### El candado sobre el detector hace el sistema más rápido, no más lento
+
+`ultralytics.predict()` guarda el lote y los resultados colgados del
+objeto del modelo, así que dos hilos entrando a la vez se pisan ese
+estado. El alineador y el embebedor no lo necesitan: van sobre
+onnxruntime, que sí es seguro entre hilos.
+
+Lo interesante es que serializar la detección **no cuesta rendimiento,
+lo gana**. Sin el candado, varias inferencias de torch compiten por los
+mismos núcleos y se estorban; con él, la detección de un frame corre a
+pleno rendimiento mientras la alineación y el embedding de otro —que
+sueltan el GIL— se solapan con ella.
+
+### Cuántos procesos
+
+`VISION_WORKERS` existe, y su valor por defecto es **uno**, medido. La
+intuición dice que varios procesos multiplicarían el rendimiento, pero
+en una máquina de 12 núcleos una sola inferencia de torch ya usa la
+mitad, y el segundo worker no dio nada distinguible del ruido a cambio
+de casi el doble de memoria. Repartir más fino es peor: con 4 workers
+de 3 hilos la latencia de una petición casi se dobla.
+
+> **Sobre las cifras de rendimiento de esta sección.** Se tomaron en un
+> portátil con Docker Desktop, y la máquina resultó ser un banco de
+> pruebas poco fiable: el mismo binario midió 2.28 frames/s al
+> principio de una sesión y 0.85 al final, sin cambiar nada. Lo que
+> aguanta es la comparación **hecha seguida**, con la máquina en el
+> mismo estado, y la del `/health`, que cambia de orden de magnitud. Si
+> vas a citar un número, vuelve a medirlo en la máquina donde vaya a
+> correr.
+
+### Lo que no se traza
+
+Los bucles de fondo —el relay cada segundo, la espera del consumidor
+cada cinco, los medidores cada quince— y las sondas de salud, que Docker
+pega cada 30 s en cada servicio. Sin suprimirlos serían más de cien mil
+trazas diarias que solo dicen «no había nada», y enterrarían las que
+importan.
+
+### Métricas propias
+
+Solo las que ninguna traza puede dar; las de latencia y error las
+fabrica el Collector a partir de las propias trazas.
+
+| Métrica | Para qué |
+|---|---|
+| `acceso_decisiones_total{motivo,sede,zona}` | Por qué se deniega |
+| `acceso_similitud` | Distribución frente al umbral |
+| `outbox_retraso_segundos` | **La alarma importante**: edad del evento sin publicar más viejo |
+| `outbox_eventos_pendientes` | Cola del emisor |
+| `shift_consumidor_pendientes` | Cola del consumidor |
+
+Las dos últimas miden averías **distintas**: una dice «no sale del
+emisor», la otra «sale pero no se consume». Y ambas cubren el mismo
+punto ciego: el Shift Service es una proyección, así que cuando se
+atasca no falla nada visible. Las puertas abren, ninguna petición da
+error, y lo único que pasa es que las horas de la gente dejan de
+computarse hasta que alguien mira su hoja a final de mes.
+
+---
+
 ## Verificar el modelo
 
 ```bash
@@ -994,3 +1211,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0006 | Autenticación de administradores en un servicio propio |
 | 0007 | Redis Streams para los eventos, y la presencia en el Access Service |
 | 0008 | Cada servicio es dueño de sus tipos; se retira el paquete de contratos |
+| 0009 | Observabilidad con OpenTelemetry, y la traza cruza el bus |

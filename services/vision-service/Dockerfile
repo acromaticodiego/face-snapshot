@@ -86,4 +86,38 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD curl -fsS http://localhost:8000/api/v1/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ══════════════════════════════════════════════════════════════════
+#  NUMERO DE PROCESOS: MEDIDO, NO SUPUESTO
+#
+#  El valor por defecto es UN worker, y es el resultado de medirlo, no
+#  una decision por comodidad. La intuicion decia que varios procesos
+#  multiplicarian el rendimiento: cada uno tiene su copia de los
+#  modelos, asi que esquivan de golpe el GIL y el candado que protege a
+#  ultralytics. La medida dice otra cosa (mediana de 7 repeticiones,
+#  4 peticiones simultaneas, 12 nucleos):
+#
+#      1 worker x 6 hilos ....  2.28 frames/s  [2.15-2.64]   609 MiB
+#      2 workers x 6 hilos ...  2.40 frames/s  [2.02-2.65]  1.10 GiB
+#
+#  Los rangos se solapan: el segundo proceso no compra nada
+#  distinguible del ruido, y cuesta casi el doble de memoria. El motivo
+#  es que una sola inferencia de torch ya usa 6 de los 12 nucleos, asi
+#  que la maquina esta practicamente saturada con un solo worker
+#  solapando trabajo. Repartir mas fino es peor: con 4 workers x 3
+#  hilos la latencia de una peticion sube de 570 ms a 964 ms, porque
+#  cada inferencia se queda sin nucleos.
+#
+#  Se deja como variable porque en una maquina con mas nucleos la
+#  respuesta puede cambiar. Lo que no se debe hacer es subirlo sin
+#  volver a medir.
+#
+#  Y OJO CON LOS HILOS: torch coge por defecto la mitad de los nucleos
+#  para UNA inferencia. Con varios workers sin fijar este limite, todos
+#  piden todos los nucleos y se estorban.
+#
+#  Va en UNA sola linea a proposito: este archivo tiene finales de
+#  linea CRLF y el parser de Docker no acepta la continuacion con
+#  barra cuando le sigue un retorno de carro. Partirla en varias
+#  lineas rompe la construccion con 'unknown instruction: exec'.
+# ══════════════════════════════════════════════════════════════════
+CMD [ -n "${VISION_THREADS_PER_WORKER:-}" ] && export OMP_NUM_THREADS="$VISION_THREADS_PER_WORKER"; exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${VISION_WORKERS:-1}

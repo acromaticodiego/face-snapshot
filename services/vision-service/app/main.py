@@ -7,6 +7,7 @@ No tiene base de datos y no conoce identidades.
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,6 +17,7 @@ from app.api.v1.routes import router as v1_router
 from app.core.config import get_settings
 from app.core.errors import VisionError, vision_error_handler
 from app.core.logging import configure_logging, get_logger
+from app.core.telemetry import configure_telemetry
 from app.detection.factory import build_detector
 from app.recognition.aligner import FaceAligner
 from app.recognition.embedder import ArcFaceEmbedder
@@ -75,6 +77,11 @@ app.add_middleware(
 
 app.add_exception_handler(VisionError, vision_error_handler)
 app.include_router(v1_router, prefix="/api/v1")
+
+# Se instrumenta despues de montar las rutas para que los spans lleven
+# el patron de ruta (`/api/v1/analyze`) en lugar de la URL concreta.
+if configure_telemetry(app, service_version=app.version):
+    logger.info("telemetria_activa", endpoint=os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"])
 
 
 @app.get("/", include_in_schema=False)

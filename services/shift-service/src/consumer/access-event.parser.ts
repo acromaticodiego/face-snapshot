@@ -66,3 +66,29 @@ export function parseAccessGrantedEvent(
     return null;
   }
 }
+
+/**
+ * Lee el `traceparent` que el relay metió en el mensaje.
+ *
+ * POR QUE NO ES PARTE DEL ESQUEMA DE ARRIBA
+ * ─────────────────────────────────────────
+ * Porque no es parte del evento. Es metadato del TRANSPORTE: describe
+ * de qué traza vino este mensaje, no qué ocurrió en la puerta. Si
+ * viajara dentro del payload, el validador del contrato tendría que
+ * conocerlo y una versión del Access Service sin telemetría rompería
+ * el esquema. Viajando en un campo aparte, el contrato del evento no
+ * se entera de que existe la observabilidad.
+ *
+ * Devuelve `null` si el mensaje no lo trae, que es el caso de todo lo
+ * publicado con la telemetría apagada y de todo lo anterior a la
+ * Fase 4. El consumidor procesa esos eventos igual, sin span: la
+ * jornada de alguien no puede depender de que haya trazas.
+ */
+export function traceparentDelMensaje(fields: string[]): string | null {
+  // Redis Streams entrega los campos como una lista PLANA de pares
+  // alternos, no como un objeto: hay que recorrerla de dos en dos.
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    if (fields[i] === 'traceparent' && fields[i + 1]) return fields[i + 1];
+  }
+  return null;
+}

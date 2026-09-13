@@ -1,0 +1,39 @@
+# ══════════════════════════════════════════════════════════════════
+#  Grafana Tempo — almacen de trazas
+#
+#  Se eligio Tempo y no Jaeger porque la captura que justifica esta
+#  fase —una traza que cruza el bus de eventos— se mira junto a las
+#  metricas de latencia que salen de esas mismas trazas. Con Jaeger
+#  serian dos interfaces sin relacion entre si; aqui, una sola.
+#
+#  Almacenamiento LOCAL en un volumen. Esto es un despliegue de
+#  demostracion en una maquina: un backend de objetos seria operar algo
+#  que aqui no aporta nada.
+#
+#  La configuracion es deliberadamente MINIMA. Tempo 3.0 reorganizo su
+#  arquitectura (aparecio el `live-store`, y desaparecieron los bloques
+#  `ingester` y `compactor` de nivel superior que usaban las guias de
+#  la serie 2.x). Todo lo que no esta aqui se queda en su valor por
+#  defecto a proposito: ajustar retenciones y tamanos de bloque para un
+#  volumen de trazas como este seria afinar algo que no aprieta.
+# ══════════════════════════════════════════════════════════════════
+
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

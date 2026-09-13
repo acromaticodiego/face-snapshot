@@ -236,6 +236,42 @@ export class AccessServiceClient extends BaseServiceClient {
     }
   }
 
+  /**
+   * Roles de varias personas a la vez, para componer el listado.
+   *
+   * Devuelve `null` en lugar de propagar el fallo: los roles son un
+   * dato ACCESORIO de la lista de personas, que vive en otro servicio.
+   * Si el Access Service no responde, el administrador debe seguir
+   * viendo a su gente y pudiendo capturar rostros; lo que no puede es
+   * ver a todo el mundo marcado como «sin rol», porque le haría
+   * perseguir un problema que no existe.
+   */
+  async lookupPersonRoles(
+    personIds: string[],
+  ): Promise<Record<string, { roleId: string; roleName: string }[]> | null> {
+    if (personIds.length === 0) return {};
+    try {
+      const { data } = await this.http.post<{
+        byPerson: Record<string, { roleId: string; roleName: string }[]>;
+      }>(
+        '/api/v1/persons/roles/lookup',
+        { personIds },
+        // Plazo propio, mucho más corto que los 12 s del cliente. Un
+        // servicio COLGADO es peor que uno caído: sin este límite, el
+        // listado de personas tardaría doce segundos en pintarse por
+        // culpa de un dato accesorio. Es la misma lección que dejó el
+        // /health del Shift Service con Redis caído.
+        { timeout: 2_000 },
+      );
+      return data.byPerson;
+    } catch (e) {
+      this.logger.warn(
+        `No se pudieron consultar los roles del listado: ${(e as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   async assignRole(personId: string, body: Record<string, unknown>) {
     try {
       const { data } = await this.http.post(

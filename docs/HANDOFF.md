@@ -44,7 +44,9 @@ una cámara, el sistema decide si puede entrar según su rol, la zona y
 el horario, y registra el acceso.
 
 Arquitectura de microservicios, funcionando de extremo a extremo.
-**Fases 1, 2 y 3 completadas.** La siguiente es la 4: observabilidad.
+**Fases 1, 2, 3 y 4 completadas**, más el rol en el alta de la persona.
+Lo siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: las pruebas
+del frontend y después la Fase 5 (voz e IA).
 
 ---
 
@@ -63,6 +65,15 @@ Arquitectura de microservicios, funcionando de extremo a extremo.
 | `frontend` | React 19 + Vite + Tailwind 4 | Interfaz | 5173 |
 | PostgreSQL 17 + pgvector | — | Un schema y un rol por servicio | 5433 en host |
 | Redis 8 | — | Bus de eventos y ventanas de votación compartidas | 6380 en host |
+| `otel-collector` | OTel Contrib | Recibe la telemetría de los 6 y la reparte | interno |
+| `tempo` | Grafana Tempo 3 | Almacén de trazas | interno |
+| `prometheus` | Prometheus 3 | Métricas | 9090 en host |
+| `grafana` | Grafana 13 | Paneles | 3001 en host |
+
+Los cuatro últimos **no son dependencia de nadie**: no aparecen en
+ningún `depends_on` de los servicios ni en ningún `/health`. Si el
+Collector cae, los servicios descartan telemetría en silencio y las
+puertas siguen abriendo.
 
 **El puerto es 5433, no 5432**, porque el usuario tiene un PostgreSQL
 nativo instalado ocupando el puerto estándar. Redis está en 6380 por la
@@ -116,6 +127,27 @@ puntos nativos de SCRFD, no de documentación.
   Exige cuenta de administración porque muestra datos de terceros.
 - Tres endpoints de estadísticas nuevos en el Access Service, agregados
   en SQL.
+- **Descansos declarados por la persona**: baño, café o almuerzo no
+  cruzan ningún lector, y sin poder declararlos la jornada contaría
+  como trabajado todo el rato dentro del edificio. `POST
+  /me/shift/break` y `/me/shift/resume`.
+- **`/admin/faces`**: el alta es un asistente de datos → rol → rostro, y
+  la lista marca a quien le falte un paso. El listado es el único sitio
+  donde el Gateway compone dos servicios (identidad del Face Service,
+  rol del Access Service), con plazo propio de 2 s y degradación a
+  `roles: null` si el Access Service no responde.
+
+**Restricciones del panel que NO hay que romper.** Ocupa exactamente el
+alto de la ventana y no crece: tres columnas que desbordan *por dentro*
+si les hace falta. Un panel de operación que obliga a bajar es un panel
+cuya mitad inferior no mira nadie, y ahí estaban precisamente los dos
+análisis. Si añades un bloque, va dentro de una columna, no debajo.
+
+**Lo que un botón NO puede hacer.** Declarar un descanso sí; fichar la
+entrada o la salida, nunca. Eso lo decide el Access Service con una
+cara delante de una cámara, y un botón que abriera jornada convertiría
+el control de acceso en un adorno. Quien está `EN_PAUSA` —fuera del
+edificio— tampoco puede declarar nada: su vuelta la registra la puerta.
 
 **El hallazgo de esta fase.** El análisis del umbral con datos reales
 da **0.0641** de separación entre nubes, frente al 0.2552 que midió el
@@ -183,6 +215,22 @@ CI en GitHub Actions: tipos, compilación y tests de los 5 servicios
 Node, sintaxis del vision-service, y verificación de que no hay `.env`
 versionado.
 
+Para comprobar la observabilidad hace falta el stack levantado y algo de
+tráfico. La prueba de humo sirve de generador: cada pasada produce una
+traza completa que cruza el bus. Después:
+
+```bash
+# ¿Qué servicios ve Tempo?
+docker compose exec prometheus wget -qO-   http://tempo:3200/api/search/tag/service.name/values
+
+# Una traza concreta, por su identificador
+docker compose exec postgres psql -U facedetector -d face_access -t   -c "select trace_context from access_svc.outbox_events
+      where trace_context is not null order by created_at desc limit 1;"
+```
+
+El `trace_context` de la fila lleva el identificador de la traza entre
+los dos primeros guiones.
+
 ---
 
 ## Limitaciones conocidas y asumidas
@@ -192,10 +240,10 @@ fallos**:
 
 1. **Sin anti-spoofing.** Una foto en un móvil pasaría la
    autenticación. El sistema no es apto para producción real.
-2. **Cobertura de tests desigual.** Hay 124 tests sobre las piezas que
+2. **Cobertura de tests desigual.** Hay 132 tests sobre las piezas que
    deciden o afirman algo: política de acceso (31), votación (12),
    anti-passback (19), análisis del umbral (13), contrato del evento
-   (9), relay de la outbox (8), máquina de turnos (25) y parser del
+   (9), relay de la outbox (8), máquina de turnos (33) y parser del
    evento (7). Todas son funciones puras o con dobles, así que corren
    en segundos y sin contenedores.
 
@@ -210,7 +258,8 @@ fallos**:
    comparten en Redis. Lo que no escala ahora es el consumidor del
    shift-service: con varios, los eventos de una persona podrían
    procesarse a destiempo (la máquina descarta lo desordenado, así que
-   perdería transiciones y no las corrompería).
+   perdería transiciones y no las corrompería). Desde la Fase 4 al menos
+   **se ve**: `shift_consumidor_pendientes` mide el retraso del grupo.
 5. **El umbral 0.38 va ajustado.** Ya está medido con datos reales: la
    separación entre nubes es 0.0641 y no el 0.2552 de las fotos de
    archivo. El panel lo muestra. Lo que hace falta no es cambiar el
@@ -257,11 +306,74 @@ Sin librería de gráficos: el histograma son barras y el mapa de calor
 una cuadrícula, y tematizar Recharts para el cristal esmerilado era más
 código que dibujarlos.
 
-### Fase 4 — Observabilidad
-- OpenTelemetry en los 5 servicios + Prometheus + Grafana
-- El objetivo concreto: una traza que muestre Gateway → Access → Face →
-  Vision con los tiempos de cada etapa. Es la captura más diferenciadora
-  para el post
+### ~~Asignar el rol en el alta~~ · HECHA
+
+El alta es ahora un asistente de tres pasos —datos → rol → rostro— y la
+lista marca a quien le falte alguno, con un botón que lleva al paso que
+falta. Está explicado en el README.
+
+**Corrección de cifras, porque el dato que había aquí engañaba.** Este
+documento decía «12 personas y solo 6 con rol». Las 12 salían de contar
+la tabla entera, y el borrado de personas es **lógico**: deja una lápida
+con `deleted_at` y `status = SUSPENDED` porque los registros de
+auditoría apuntan a esas filas. De las 12, ocho eran lápidas de pruebas
+de humo. El recuento real de personas vivas era **5, de las cuales 1 sin
+rol**. El agujero era verdadero, pero cuatro veces más pequeño de lo que
+decía el documento. Al contar filas de esta base de datos, filtra por
+`deleted_at IS NULL`.
+
+Lo que sigue sin cerrarse, y es deliberado: **por API todavía se puede
+crear a alguien sin rol.** Cerrarlo en el servidor obligaría al Face
+Service a llamar al Access Service, invirtiendo la única dirección de
+dependencia que hoy está limpia. Lo exige el asistente, no el servidor.
+
+### ~~Fase 4 — Observabilidad~~ · HECHA
+
+Los seis servicios instrumentados con OpenTelemetry, un Collector en
+medio, Tempo, Prometheus y Grafana. Todo lo previsto, incluida la traza
+que cruza el bus. Ver [ADR 0009](adr/0009-observabilidad-con-opentelemetry.md).
+
+**El hallazgo de esta fase.** Ya se sabe dónde se va el tiempo de un
+frame (p95, medido sobre el stack real):
+
+| Etapa | p95 | |
+|---|---|---|
+| Petición completa | ~1 s | |
+| `vision.detect` | ~740 ms | **el cuello de botella** |
+| `vision.embed` | ~450 ms | |
+| `vision.align` | ~31 ms | |
+| pgvector | ~1.2 ms | no interviene |
+
+El coste está en el **detector**, no en el embedding, y la búsqueda
+vectorial —la sospechosa intuitiva— cuesta algo más de un milisegundo.
+Son contenedores sin GPU en un portátil: vale la proporción, no el
+valor absoluto.
+
+**Dos cosas que no hay que "arreglar".**
+
+1. **El hueco de ~450 ms en medio de la traza no es latencia**, es el
+   intervalo de sondeo del relay. El evento ya está confirmado en
+   PostgreSQL esperando a que lo recojan, que es lo que la outbox
+   promete.
+2. **Los bucles de fondo no se trazan a propósito** —el relay, la
+   espera del consumidor, los medidores, las sondas de salud—. Sin
+   suprimirlos serían más de cien mil trazas diarias diciendo «no había
+   nada». Si añades un temporizador, súmalo a esa lista.
+
+**El error que costó encontrar**, por si reaparece: el span de
+publicación del relay heredaba la supresión de trazado del sondeo,
+porque se derivaba del contexto activo. Nacía sin registrar y el tramo
+asíncrono no salía en ninguna traza, sin ningún error por ningún sitio.
+Se extrae desde `ROOT_CONTEXT`.
+
+### LO SIGUIENTE, POR ORDEN
+
+**1. Pruebas del frontend.** Cero ahora mismo, y ya hay tres pantallas
+con lógica de presentación real (la máquina de estados pintada en
+`/home`, las traducciones exhaustivas de motivos en el panel, y ahora
+el asistente de alta con sus tres pasos y sus estados incompletos).
+
+**2. Fase 5, voz e IA.** Descrita más abajo, sin cambios.
 
 ### Fase 5 — Voz e IA
 - `voice-service` (Python, sin estado, simétrico al vision-service):
@@ -278,12 +390,6 @@ código que dibujarlos.
 ### Fase 6 — Anti-spoofing
 Detección de vida. El punto de enganche es la votación multi-frame, que
 ya acumula frames consecutivos.
-
-### Pendiente menor pero acordado
-Asignar el rol **en el alta de la persona** (hoy solo por API o con
-`scripts/assign-role.mjs`). Lo estándar en la industria es que el alta
-sea un onboarding: datos → rol → captura del rostro. Una persona sin rol
-es un registro inútil.
 
 ---
 
@@ -335,3 +441,51 @@ cd services/shift-service && npx prisma migrate deploy
 - Verifica siempre lo que afirmes sobre los modelos. El primer
   `rostros.pt` que entregó el usuario resultó ser un detector de tráfico;
   se descubrió inspeccionando el archivo en lugar de asumir.
+- **No midas tasas de error con datos que el propio umbral ha
+  clasificado.** Se intentó y salían cero siempre. Está explicado en
+  `access-service/src/stats/threshold.analysis.ts`; no lo "arregles"
+  volviendo a contarlas.
+- **Un `/health` nunca debe poder colgarse.** El del Shift Service lo
+  hacía con Redis caído, porque su cliente reintenta indefinidamente
+  —correcto para el consumidor, veneno para una sonda—. Cualquier
+  comprobación de dependencia va con plazo.
+- **Comprueba lo que devuelve la API, no solo lo que se guarda.** Al
+  añadir columnas nuevas, la consulta de la línea de tiempo las
+  guardaba bien y las devolvía como `undefined`, porque mapeaba las
+  entradas campo a campo.
+- Dentro de un contenedor, `localhost` puede resolver a IPv6 y los
+  servicios escuchan en IPv4. Usa `127.0.0.1` al probar desde dentro.
+- `docker compose up -d --build <servicio>` reconstruye también sus
+  dependencias, incluido el vision-service. Para tocar solo los
+  servicios Node: `docker compose build a b c` y luego
+  `docker compose up -d --no-deps a b c`.
+- **Esta máquina no sirve como banco de pruebas sin cuidado.** El mismo
+  binario dio 2.28 y 0.85 frames/s en la misma sesión, con la carga del
+  sistema pasando de 3.6 a 9.8. Si mides rendimiento: calienta primero
+  (con varios procesos hay que despertarlos a todos con ráfagas
+  concurrentes, o los fríos pagan su primera inferencia y falsean el
+  resultado), repite y usa la mediana, y compara configuraciones
+  **seguidas**, nunca contra un número de hace media hora.
+- Docker Desktop se cae solo en esta máquina de vez en cuando. Si algo
+  deja de responder, compruébalo antes de buscar el fallo en el código.
+- La resolución de DNS de Docker Hub falla a ratos en esta máquina
+  (`lookup auth.docker.io: no such host`). No es el proyecto: reintenta
+  el `docker compose build` y a la segunda suele ir.
+- **Cuidado al lanzar `node scripts/ci-local.mjs` sin `--rapido` y
+  cortarlo.** Hace `npm ci` servicio por servicio, y si se interrumpe
+  en medio deja un `node_modules` a medias que después falla con
+  `ENOTEMPTY`. Se arregla con `rm -rf node_modules && npm ci`.
+- **Un span puede nacer sin registrar y no avisar de nada.** Si un tramo
+  no aparece en la traza y no hay ningún error, sospecha del contexto
+  del que cuelga: derivar de `context.active()` dentro de un bloque con
+  el trazado suprimido hereda la supresión. Ver el ADR 0009.
+- **No mires una métrica de OpenTelemetry por su nombre de Prometheus a
+  ojo.** `otelcol_receiver_accepted_spans` no lleva sufijo `_total` en
+  la versión actual del Collector, y buscarlo con el sufijo da «no hay
+  datos» cuando en realidad todo funciona. Pregunta al endpoint de
+  métricas antes de concluir que algo está roto.
+- **Los límites por defecto de un histograma mienten con educación.**
+  El p95 de una etapa que tarda 400 ms salía 1700 ms porque el bucket
+  iba de 1 s a 2 s. El número no era falso: era la única respuesta
+  posible con esa resolución. Ajusta los límites al rango real del
+  sistema.

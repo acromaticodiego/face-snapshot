@@ -10,6 +10,7 @@ El modelo se abre en solo lectura. Nunca se reentrena ni se sobrescribe.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +37,34 @@ class YoloFaceDetector(FaceDetector):
         self._model = None
         self._loaded = False
         self._class_names: dict[int, str] = {}
+
+        # ── Por que hay un candado aqui y no en los otros modelos ────
+        #
+        # `ultralytics.YOLO.predict()` NO es seguro entre hilos: crea y
+        # reutiliza un `predictor` colgado del propio objeto del modelo,
+        # y le va escribiendo el lote y los resultados de cada llamada.
+        # Dos hilos entrando a la vez se pisan ese estado, y el sintoma
+        # no seria una excepcion: serian cajas de un frame apareciendo
+        # en la respuesta de otro. En un control de acceso eso es
+        # reconocer a la persona equivocada.
+        #
+        # El alineador y el embebedor NO lo necesitan: van sobre
+        # onnxruntime, cuyo `session.run()` si es seguro entre hilos, y
+        # sus envoltorios de insightface no guardan estado entre
+        # llamadas.
+        #
+        # El candado serializa la deteccion DENTRO de un proceso, pero
+        # eso cuesta menos de lo que parece: lo que se gana es que la
+        # alineacion y el embedding de un frame -que son onnxruntime, y
+        # sueltan el GIL- se solapen con la deteccion de otro. Medido,
+        # ese solapamiento sube el rendimiento de 1.25 a 2.28 frames/s.
+        #
+        # Tener varios procesos evitaria el candado por completo, y por
+        # eso existe `VISION_WORKERS`. Pero medido en esta maquina no
+        # anade nada distinguible del ruido: una sola inferencia de
+        # torch ya usa la mitad de los nucleos. El razonamiento
+        # completo, con las cifras, esta en el Dockerfile.
+        self._predict_lock = threading.Lock()
 
     @property
     def name(self) -> str:
@@ -83,13 +112,15 @@ class YoloFaceDetector(FaceDetector):
         if not self._loaded or self._model is None:
             raise ModelNotReadyError("El detector no está cargado")
 
-        results = self._model.predict(
-            source=image_bgr,
-            conf=self._confidence,
-            iou=self._iou,
-            imgsz=self._imgsz,
-            verbose=False,
-        )
+        with self._predict_lock:
+            results = self._model.predict(
+                source=image_bgr,
+                conf=self._confidence,
+                iou=self._iou,
+                imgsz=self._imgsz,
+                verbose=False,
+            )
+
         if not results:
             return []
 

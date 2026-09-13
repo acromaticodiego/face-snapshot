@@ -30,7 +30,10 @@ import {
   validateUploadedImage,
 } from '../common/uploaded-image';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { FaceServiceClient } from '../proxy/service-clients';
+import {
+  AccessServiceClient,
+  FaceServiceClient,
+} from '../proxy/service-clients';
 import { AdminAuthGuard } from './admin-auth.guard';
 
 const CreatePersonSchema = z.object({
@@ -60,25 +63,62 @@ export class AdminPersonsController {
 
   constructor(
     private readonly faces: FaceServiceClient,
+    private readonly access: AccessServiceClient,
     config: ConfigService,
   ) {
     this.maxImageBytes = Number(config.get('MAX_IMAGE_SIZE_MB', 8)) * 1024 * 1024;
   }
 
+  /**
+   * Lista las personas con el rol que tienen asignado.
+   *
+   * Es el único sitio del Gateway donde se COMPONEN dos servicios, y
+   * merece la pena decir por qué no contradice la regla de «cero
+   * lógica de negocio»: aquí no se decide nada. La identidad vive en
+   * el Face Service y el rol en el Access Service porque son dominios
+   * distintos, pero quien administra necesita verlos juntos para
+   * detectar a quien está registrado y no puede pasar por ninguna
+   * puerta. Unir dos lecturas para una pantalla es precisamente el
+   * trabajo de un Gateway; decidir con ellas, no.
+   *
+   * La alternativa —que el navegador pregunte los roles de cada
+   * persona— serían N+1 peticiones por cada letra tecleada en el
+   * buscador.
+   */
   @Get()
-  @ApiOperation({ summary: 'Lista las personas registradas' })
-  list(
+  @ApiOperation({ summary: 'Lista las personas registradas con su rol' })
+  async list(
     @Query('search') search?: string,
     @Query('skip') skip?: string,
     @Query('take') take?: string,
   ) {
-    return this.faces.listPersons({ search, skip, take });
+    const page = (await this.faces.listPersons({ search, skip, take })) as {
+      items: { id: string }[];
+      total: number;
+    };
+
+    const byPerson = await this.access.lookupPersonRoles(
+      page.items.map((person) => person.id),
+    );
+
+    return {
+      ...page,
+      items: page.items.map((person) => ({
+        ...person,
+        // `null` significa «no se pudo consultar», y es distinto de la
+        // lista vacía, que significa «no tiene ningún rol». La interfaz
+        // los pinta distinto: uno es una avería y el otro, un aviso.
+        roles: byPerson ? (byPerson[person.id] ?? []) : null,
+      })),
+    };
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Consulta una persona' })
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.faces.getPerson(id);
+  @ApiOperation({ summary: 'Consulta una persona con su rol' })
+  async get(@Param('id', ParseUUIDPipe) id: string) {
+    const person = (await this.faces.getPerson(id)) as Record<string, unknown>;
+    const byPerson = await this.access.lookupPersonRoles([id]);
+    return { ...person, roles: byPerson ? (byPerson[id] ?? []) : null };
   }
 
   @Post()

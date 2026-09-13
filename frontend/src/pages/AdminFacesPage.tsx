@@ -1,10 +1,10 @@
 import {
   Camera,
   Check,
-  IdCard,
   Search,
+  ShieldAlert,
+  ShieldCheck,
   Trash2,
-  User,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -12,13 +12,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { AdminShell } from '@/components/AdminShell';
-import { EnrollDialog } from '@/components/EnrollDialog';
-import {
-  GlassCard,
-  GlassField,
-  GlowBadge,
-  VaultButton,
-} from '@/components/vault';
+import { PersonOnboardingDialog } from '@/components/PersonOnboardingDialog';
+import { GlassCard, GlowBadge, VaultButton } from '@/components/vault';
 import { api, ApiError, type Person } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 
@@ -37,16 +32,32 @@ function gradientFor(name: string): string {
   return INITIAL_GRADIENTS[seed % INITIAL_GRADIENTS.length];
 }
 
+/**
+ * Qué le falta a una persona para poder pasar por una puerta.
+ *
+ * `roles === null` NO es «sin rol»: es que no se pudo preguntar al
+ * Access Service. Pintarlo igual mandaría al administrador a asignar
+ * roles que ya existen.
+ */
+function pendingStep(person: Person): 'rol' | 'rostro' | null {
+  if (person.roles !== null && person.roles.length === 0) return 'rol';
+  if (person.enrolledFacesCount === 0) return 'rostro';
+  return null;
+}
+
 export function AdminFacesPage() {
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [enrolling, setEnrolling] = useState<Person | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newExternalId, setNewExternalId] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
+  /**
+   * El alta abierta. `person: null` es un alta nueva desde cero;
+   * con persona, es retomar la de alguien a quien le falta un paso.
+   */
+  const [onboarding, setOnboarding] = useState<{
+    person: Person | null;
+    step: 'datos' | 'rol' | 'rostro';
+  } | null>(null);
 
   const load = useCallback(async (term?: string) => {
     setLoading(true);
@@ -71,37 +82,6 @@ export function AdminFacesPage() {
     const timer = setTimeout(() => void load(search || undefined), 350);
     return () => clearTimeout(timer);
   }, [search, load]);
-
-  const handleCreate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setFormError(null);
-
-    if (newName.trim().length < 2) {
-      setFormError('El nombre debe tener al menos 2 caracteres');
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const person = await api.createPerson({
-        fullName: newName.trim(),
-        externalId: newExternalId.trim() || undefined,
-      });
-      setNewName('');
-      setNewExternalId('');
-      toast.success(`${person.fullName} creado. Ahora captura su rostro.`);
-      await load(search || undefined);
-      // Encadena directamente con la captura: crear a alguien sin rostro
-      // no sirve de nada, así que se guía al operador al paso siguiente.
-      setEnrolling(person);
-    } catch (err) {
-      setFormError(
-        err instanceof ApiError ? err.message : 'No se pudo crear la persona',
-      );
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const handleDelete = async (person: Person) => {
     const confirmed = window.confirm(
@@ -132,49 +112,30 @@ export function AdminFacesPage() {
       <>
 
         {/* ── Alta de persona ──────────────────────────────────── */}
-        <GlassCard glow="purple" className="mb-6 p-6">
-          <h2 className="mb-5 flex items-center gap-2 text-sm font-semibold text-white">
-            <UserPlus className="h-4 w-4 text-vault-blue" />
-            Registrar persona
-          </h2>
-
-          <form
-            onSubmit={handleCreate}
-            className="flex flex-col gap-4 sm:flex-row sm:items-start"
+        {/*
+          El alta ya no es un formulario suelto, sino un asistente de
+          tres pasos: datos, rol y rostro. Un formulario que solo pedía
+          el nombre producía personas a las que el sistema reconoce y no
+          deja pasar por ninguna puerta, y eran la mitad de las que hay
+          registradas.
+        */}
+        <GlassCard glow="purple" className="mb-6 flex flex-wrap items-center justify-between gap-4 p-6">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+              <UserPlus className="h-4 w-4 text-vault-blue" />
+              Registrar persona
+            </h2>
+            <p className="mt-1 text-xs text-white/45">
+              Datos, rol y captura del rostro. Los tres pasos hacen falta para
+              que pueda abrir una puerta.
+            </p>
+          </div>
+          <VaultButton
+            onClick={() => setOnboarding({ person: null, step: 'datos' })}
+            icon={<UserPlus className="h-4 w-4" />}
           >
-            <div className="flex-1">
-              <GlassField
-                accent="purple"
-                icon={<User className="h-4 w-4" />}
-                label="Nombre completo"
-                name="fullName"
-                placeholder="Diego Ossa"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                error={formError ?? undefined}
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex-1">
-              <GlassField
-                accent="orange"
-                icon={<IdCard className="h-4 w-4" />}
-                label="Identificador (opcional)"
-                name="externalId"
-                placeholder="Cédula o código"
-                value={newExternalId}
-                onChange={(e) => setNewExternalId(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            <VaultButton
-              type="submit"
-              loading={creating}
-              className="sm:mt-[1.65rem]"
-            >
-              Crear
-            </VaultButton>
-          </form>
+            Nueva alta
+          </VaultButton>
         </GlassCard>
 
         {/* ── Buscador ─────────────────────────────────────────── */}
@@ -214,7 +175,7 @@ export function AdminFacesPage() {
             <p className="max-w-sm text-sm text-white/40">
               {search
                 ? 'Prueba con otro nombre o identificador.'
-                : 'Registra la primera persona con el formulario de arriba.'}
+                : 'Empieza con «Nueva alta»: datos, rol y rostro.'}
             </p>
           </GlassCard>
         ) : (
@@ -242,12 +203,33 @@ export function AdminFacesPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <GlowBadge
                     accent={person.status === 'ACTIVE' ? 'green' : 'orange'}
                   >
                     {person.status === 'ACTIVE' ? 'Activo' : 'Suspendido'}
                   </GlowBadge>
+
+                  {/* El rol vive en otro servicio, así que puede no
+                      saberse. «No se sabe» se pinta apagado y sin
+                      alarma; «sin rol» sí es un aviso, porque es una
+                      persona que no puede pasar por ninguna puerta. */}
+                  {person.roles === null ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2.5 py-0.5 text-xs text-white/35">
+                      Rol no disponible
+                    </span>
+                  ) : person.roles.length === 0 ? (
+                    <GlowBadge accent="orange">
+                      <ShieldAlert className="h-3 w-3" />
+                      Sin rol
+                    </GlowBadge>
+                  ) : (
+                    <GlowBadge accent="green">
+                      <ShieldCheck className="h-3 w-3" />
+                      {person.roles.map((r) => r.roleName).join(', ')}
+                    </GlowBadge>
+                  )}
+
                   <GlowBadge
                     accent={person.enrolledFacesCount > 0 ? 'green' : 'orange'}
                   >
@@ -264,13 +246,28 @@ export function AdminFacesPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <VaultButton
-                    size="sm"
-                    icon={<Camera className="h-3.5 w-3.5" />}
-                    onClick={() => setEnrolling(person)}
-                  >
-                    Capturar
-                  </VaultButton>
+                  {/* Un solo botón que lleva al paso que le falte a
+                      esta persona. Es lo que convierte un alta a medias
+                      en algo que se retoma en un clic en lugar de en un
+                      registro que nadie vuelve a tocar. */}
+                  {pendingStep(person) === 'rol' ? (
+                    <VaultButton
+                      size="sm"
+                      icon={<ShieldAlert className="h-3.5 w-3.5" />}
+                      onClick={() => setOnboarding({ person, step: 'rol' })}
+                    >
+                      Asignar rol
+                    </VaultButton>
+                  ) : (
+                    <VaultButton
+                      size="sm"
+                      tone={person.enrolledFacesCount > 0 ? 'glass' : 'blue'}
+                      icon={<Camera className="h-3.5 w-3.5" />}
+                      onClick={() => setOnboarding({ person, step: 'rostro' })}
+                    >
+                      Capturar
+                    </VaultButton>
+                  )}
                   <VaultButton
                     size="sm"
                     tone="danger"
@@ -286,12 +283,13 @@ export function AdminFacesPage() {
         )}
       </>
 
-      {enrolling && (
-        <EnrollDialog
-          person={enrolling}
-          onClose={() => setEnrolling(null)}
-          onEnrolled={() => {
-            setEnrolling(null);
+      {onboarding && (
+        <PersonOnboardingDialog
+          person={onboarding.person}
+          initialStep={onboarding.step}
+          onClose={() => setOnboarding(null)}
+          onFinished={() => {
+            setOnboarding(null);
             void load(search || undefined);
           }}
         />

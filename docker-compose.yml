@@ -99,6 +99,26 @@ services:
       MIN_FACE_SIZE_PX: ${MIN_FACE_SIZE_PX:-80}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Procesos de inferencia. El defecto es UNO porque se midio:
+      # el segundo worker no da nada distinguible del ruido y cuesta
+      # casi el doble de memoria, ya que cada uno carga su propia
+      # copia de rostros.pt, de los landmarks y de ArcFace. Las
+      # cifras estan en el Dockerfile del servicio. No lo subas sin
+      # volver a medir en la maquina donde vaya a correr.
+      VISION_WORKERS: ${VISION_WORKERS:-1}
+      # Vacio a proposito: sin valor, lo decide torch (la mitad de los
+      # nucleos de la maquina). Solo hay que ponerle un numero si se
+      # suben los workers, para que no se peleen por los nucleos.
+      VISION_THREADS_PER_WORKER: ${VISION_THREADS_PER_WORKER:-}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     volumes:
       # El modelo se monta en SOLO LECTURA: el contenedor no puede
       # modificarlo ni sobrescribirlo.
@@ -124,6 +144,15 @@ services:
       EMBEDDING_DIM: '512'
       RECOGNITION_THRESHOLD: ${RECOGNITION_THRESHOLD:-0.38}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3001'
     depends_on:
@@ -164,6 +193,15 @@ services:
       OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
       OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
       OUTBOX_RETENTION_HOURS: ${OUTBOX_RETENTION_HOURS:-168}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3002'
     depends_on:
@@ -192,6 +230,15 @@ services:
       ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-admin@detector.local}
       ADMIN_BOOTSTRAP_NAME: ${ADMIN_BOOTSTRAP_NAME:-Administrador}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:?Define ADMIN_BOOTSTRAP_PASSWORD en .env}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3003'
     depends_on:
@@ -224,6 +271,15 @@ services:
       # sin fichar, no un turno.
       SHIFT_MAX_HOURS: ${SHIFT_MAX_HOURS:-16}
       RECONCILER_INTERVAL_MS: ${RECONCILER_INTERVAL_MS:-60000}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     expose:
       - '3004'
     depends_on:
@@ -253,6 +309,15 @@ services:
       ADMIN_AUTH_ENABLED: ${ADMIN_AUTH_ENABLED:-true}
       MAX_IMAGE_SIZE_MB: ${MAX_IMAGE_SIZE_MB:-8}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
     # El ÚNICO servicio publicado hacia fuera.
     ports:
       - '${GATEWAY_PORT:-3000}:3000'
@@ -265,6 +330,98 @@ services:
         condition: service_started
       shift-service:
         condition: service_started
+    networks: [detector-net]
+
+  # ══════════════════════════════════════════════════════════════
+  #  OBSERVABILIDAD
+  #
+  #  Cuatro contenedores y un solo camino:
+  #
+  #      servicios ──OTLP──> collector ──> tempo      (trazas)
+  #                              └────────> prometheus (metricas)
+  #                                              └───> grafana
+  #
+  #  Ninguno de los cuatro es una dependencia de nadie. Si el colector
+  #  desaparece, los servicios descartan telemetria en silencio con una
+  #  cola acotada y las puertas siguen abriendose igual. Por eso
+  #  tampoco aparece en ningun `depends_on` de los servicios ni en
+  #  ningun `/health`: convertir una averia de telemetria en una averia
+  #  de control de acceso seria cambiar un problema pequeno por uno
+  #  grave.
+  # ══════════════════════════════════════════════════════════════
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.160.0
+    container_name: detector-otel-collector
+    restart: unless-stopped
+    command: ['--config=/etc/otel/config.yaml']
+    volumes:
+      - ./infrastructure/observability/otel-collector.yaml:/etc/otel/config.yaml:ro
+    expose:
+      - '4318'  # OTLP/HTTP, que es por donde entran los seis servicios
+      - '4317'  # OTLP/gRPC
+      - '8889'  # metricas para Prometheus
+      - '8888'  # sus propias metricas
+    depends_on:
+      - tempo
+    networks: [detector-net]
+
+  tempo:
+    image: grafana/tempo:3.0.3
+    container_name: detector-tempo
+    restart: unless-stopped
+    command: ['-config.file=/etc/tempo/tempo.yaml']
+    user: root
+    volumes:
+      - ./infrastructure/observability/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    expose:
+      - '3200'  # consulta, que es lo que usa Grafana
+      - '4317'  # OTLP/gRPC, solo desde el colector
+    networks: [detector-net]
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: detector-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      # Sin esto, los exemplars llegan y se tiran: es lo que permite
+      # saltar de un pico de latencia a la traza que lo causo.
+      - '--enable-feature=exemplar-storage'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infrastructure/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      # Solo en localhost: son metricas de operacion, no una pagina
+      # publica.
+      - '127.0.0.1:${PROMETHEUS_PORT:-9090}:9090'
+    networks: [detector-net]
+
+  grafana:
+    image: grafana/grafana:13.2.1
+    container_name: detector-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Registrarse uno mismo en un panel de operacion interno no tiene
+      # ningun sentido, y deja la puerta abierta.
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_FEATURE_TOGGLES_ENABLE: traceToMetrics
+    volumes:
+      - ./infrastructure/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # 3001 porque el 3000 lo ocupa el Gateway en el host.
+      - '127.0.0.1:${GRAFANA_PORT:-3001}:3000'
+    depends_on:
+      - prometheus
+      - tempo
     networks: [detector-net]
 
   # ── Interfaz ────────────────────────────────────────────────────
@@ -288,6 +445,12 @@ volumes:
     name: detector-postgres-data
   redis-data:
     name: detector-redis-data
+  tempo-data:
+    name: detector-tempo-data
+  prometheus-data:
+    name: detector-prometheus-data
+  grafana-data:
+    name: detector-grafana-data
 
 networks:
   detector-net:

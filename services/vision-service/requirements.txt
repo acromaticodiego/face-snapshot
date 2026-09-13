@@ -21,3 +21,11 @@ pillow==12.3.0
 
 # ── Observabilidad ────────────────────────────────────────────────
 structlog==25.5.0
+
+# OpenTelemetry. La instrumentacion de FastAPI extrae por si sola la
+# cabecera traceparent que envia el Face Service, y por eso el tramo de
+# Python aparece dentro de la misma traza y no como una suelta.
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-http==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0
