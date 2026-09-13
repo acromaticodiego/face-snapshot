@@ -24,6 +24,7 @@ const REASONS: Record<AccessReason, string> = {
   OUTSIDE_SCHEDULE: 'Fuera de horario',
   ASSIGNMENT_EXPIRED: 'Asignación caducada',
   ACCESS_POINT_DISABLED: 'Puerta no disponible',
+  LIVENESS_FAILED: 'La captura parece una foto o una pantalla',
   ANTIPASSBACK_VIOLATION: 'Ya constaba dentro',
 };
 

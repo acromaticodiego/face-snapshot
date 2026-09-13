@@ -36,6 +36,12 @@ enum AccessReason {
   OUTSIDE_SCHEDULE
   ASSIGNMENT_EXPIRED
   ACCESS_POINT_DISABLED
+  // ── Sospecha de suplantacion ──────────────────────────────────
+  /// La captura parece una foto o una pantalla, no una persona.
+  /// Solo se emite en modo HARD; en SOFT la sospecha se anota pero
+  /// el acceso sigue su curso.
+  LIVENESS_FAILED
+
   /// Intento de entrar sin haber salido, en una zona con anti-passback
   /// estricto. No es un fallo de permisos: es que el sistema ya te
   /// considera dentro.

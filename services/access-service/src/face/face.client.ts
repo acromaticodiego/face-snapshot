@@ -12,6 +12,18 @@ export interface IdentifiedFace {
     blurScore: number;
     truncated: boolean;
   };
+  /**
+   * Evidencia de vida medida por el Vision Service. Son NÚMEROS, no un
+   * veredicto: la política de qué hacer con ellos vive aquí, en el
+   * único servicio que decide si una puerta se abre.
+   *
+   * Opcional porque un Vision Service anterior a la Fase 6 no la envía,
+   * y un despliegue escalonado no puede dejar a nadie fuera.
+   */
+  liveness?: {
+    detailRatio: number;
+    patternPeak: number;
+  };
   match: {
     personId: string;
     fullName: string;

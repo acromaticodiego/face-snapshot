@@ -190,6 +190,13 @@ services:
       # Dos lecturas del mismo rostro en la misma puerta dentro de esta
       # ventana son el mismo paso, no dos.
       ANTIPASSBACK_GRACE_SECONDS: ${ANTIPASSBACK_GRACE_SECONDS:-10}
+      # Deteccion de vida. El defecto es SOFT -anota la sospecha y deja
+      # pasar- porque la senal NO esta validada contra ataques reales.
+      # Poner HARD sin haber mirado antes lo que SOFT registra es
+      # empezar a dejar gente en la calle con un numero sin calibrar.
+      LIVENESS_MODE: ${LIVENESS_MODE:-SOFT}
+      LIVENESS_MIN_DETAIL_RATIO: ${LIVENESS_MIN_DETAIL_RATIO:-0.25}
+      LIVENESS_MAX_PATTERN_PEAK: ${LIVENESS_MAX_PATTERN_PEAK:-90}
       OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
       OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
       OUTBOX_RETENTION_HOURS: ${OUTBOX_RETENTION_HOURS:-168}

@@ -56,6 +56,22 @@ export class DomainMetrics {
       },
     });
 
+  /**
+   * Sospechas de suplantacion, por motivo y por modo.
+   *
+   * El MODO es una etiqueta y no un detalle: en SOFT esta metrica es lo
+   * unico que queda de la sospecha, porque el acceso se concede igual.
+   * Es la fuente con la que calibrar los umbrales antes de encender
+   * HARD, y sin ella el modo por defecto seria simplemente no hacer
+   * nada.
+   */
+  private readonly sospechasDeVida = metrics
+    .getMeter('access-service')
+    .createCounter('acceso_sospechas_de_vida', {
+      description:
+        'Frames en los que la captura no parecia una persona, por motivo',
+    });
+
   constructor(private readonly prisma: PrismaService) {
     this.registrarObservables();
   }
@@ -63,6 +79,11 @@ export class DomainMetrics {
   /** Una decision tomada. `motivo` es el enum `AccessReason`. */
   registrarDecision(motivo: string, sede: string, zona: string): void {
     this.decisiones.add(1, { motivo, sede, zona });
+  }
+
+  /** Una sospecha de suplantacion en un frame. */
+  registrarSospechaDeVida(motivo: string, modo: string): void {
+    this.sospechasDeVida.add(1, { motivo, modo });
   }
 
   /**

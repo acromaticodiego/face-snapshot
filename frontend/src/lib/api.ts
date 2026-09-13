@@ -41,6 +41,8 @@ export type AccessReason =
   | 'OUTSIDE_SCHEDULE'
   | 'ASSIGNMENT_EXPIRED'
   | 'ACCESS_POINT_DISABLED'
+  // La captura no parece una persona, sino una foto o una pantalla.
+  | 'LIVENESS_FAILED'
   // Reconocido y con permiso, pero el sistema ya te considera dentro.
   | 'ANTIPASSBACK_VIOLATION';
 

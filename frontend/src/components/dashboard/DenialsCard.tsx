@@ -31,6 +31,7 @@ const FAMILY: Record<AccessReason, Family> = {
   OUTSIDE_SCHEDULE: 'permisos',
   ASSIGNMENT_EXPIRED: 'permisos',
   ACCESS_POINT_DISABLED: 'operacion',
+  LIVENESS_FAILED: 'operacion',
   ANTIPASSBACK_VIOLATION: 'operacion',
 };
 
@@ -47,6 +48,7 @@ const LABELS: Record<AccessReason, string> = {
   OUTSIDE_SCHEDULE: 'Fuera de horario',
   ASSIGNMENT_EXPIRED: 'Asignación caducada',
   ACCESS_POINT_DISABLED: 'Puerta no disponible',
+  LIVENESS_FAILED: 'Parece una foto o pantalla',
   ANTIPASSBACK_VIOLATION: 'Ya constaba dentro',
 };
 

@@ -20,6 +20,17 @@ export interface VisionDetectedFace {
     blurScore: number;
     truncated: boolean;
   };
+  /**
+   * Evidencia de vida. NO es un veredicto: son medidas crudas sobre la
+   * textura del rostro, y quien decide qué significan es el Access
+   * Service, que es el único que tiene política.
+   */
+  liveness: {
+    /** Cae con una reimpresión o una foto de una foto. */
+    detailRatio: number;
+    /** Sube con la rejilla de una pantalla y con la recompresión. */
+    patternPeak: number;
+  };
 }
 
 export interface VisionAnalyzeResult {
