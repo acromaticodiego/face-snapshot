@@ -40,7 +40,25 @@ class Settings(BaseSettings):
     # sistema estructura a partir del mismo parte. Un registro de
     # seguridad no puede cambiar de contenido porque un proveedor haya
     # promocionado otro modelo el martes.
-    gemini_model: str = Field(default="gemini-3.8-flash", alias="GEMINI_MODEL")
+    #
+    # POR QUE ESTE Y NO EL MAS NUEVO, que esta medido sobre un parte
+    # dictado de verdad. Los tres candidatos sacaron las MISMAS dos
+    # incidencias, bien clasificadas y con las dos citas respaldadas:
+    #
+    #     gemini-3.6-flash ........ 13125 ms
+    #     gemini-3.5-flash-lite .... 2067 ms
+    #     gemini-3.1-flash-lite .... 2540 ms
+    #
+    # Seis veces mas rapido por el mismo resultado, delante de alguien
+    # que espera al final de su turno.
+    #
+    # Y HAY UNA CUOTA QUE CONVIENE CONOCER: el plan gratuito da 20
+    # peticiones al DIA por modelo
+    # (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`). Se agota
+    # probando, y cuando pasa el servicio lo dice con esas palabras en
+    # lugar de "no respondio". Las cuotas son por modelo, asi que
+    # cambiar `GEMINI_MODEL` da otras 20.
+    gemini_model: str = Field(default="gemini-3.5-flash-lite", alias="GEMINI_MODEL")
 
     # ── Limites ───────────────────────────────────────────────────
     max_audio_size_mb: int = Field(default=25, alias="MAX_AUDIO_SIZE_MB")

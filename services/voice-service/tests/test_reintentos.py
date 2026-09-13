@@ -61,7 +61,13 @@ class Reintento(unittest.TestCase):
     def setUp(self):
         # Las esperas se saltan: lo que se prueba es cuantas veces se
         # intenta y con que criterio, no el reloj.
-        parche = patch("asyncio.sleep", new=lambda _: asyncio.sleep(0))
+        #
+        # Se guarda la función ORIGINAL antes de parchear. La primera
+        # versión ponía `lambda _: asyncio.sleep(0)`, que al ejecutarse
+        # llamaba al `asyncio.sleep` ya parcheado -o sea, a sí misma- y
+        # reventaba con RecursionError.
+        dormir = asyncio.sleep
+        parche = patch("asyncio.sleep", new=lambda _: dormir(0))
         parche.start()
         self.addCleanup(parche.stop)
 
@@ -106,6 +112,26 @@ class Reintento(unittest.TestCase):
         respuesta, llamadas = self._correr([413, 200])
         self.assertEqual(respuesta.status_code, 413)
         self.assertEqual(llamadas, 1)
+
+    def test_un_429_NO_se_reintenta(self):
+        # Es la unica respuesta donde reintentar deja las cosas peor:
+        # vuelve a chocar contra el mismo limite y encima lo empuja,
+        # porque cada intento cuenta para la cuota agotada.
+        respuesta, llamadas = self._correr([429, 200])
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertEqual(llamadas, 1)
+
+    def test_cuatro_intentos_cubren_siete_segundos_de_racha(self):
+        esperas = []
+
+        async def registrar(segundos):
+            esperas.append(segundos)
+
+        with patch("asyncio.sleep", new=registrar):
+            self._correr([503, 503, 503, 200], intentos=4, espera_s=0.5)
+
+        self.assertEqual(esperas, [0.5, 1.5, 4.5])
+        self.assertAlmostEqual(sum(esperas), 6.5)
 
     def test_tres_intentos_aguantan_una_racha_de_dos(self):
         # Es el caso que motivo el cambio: dos 503 seguidos y el tercero

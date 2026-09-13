@@ -40,7 +40,7 @@ from app.core.config import Settings
 from app.core.logging import get_logger
 from app.core.telemetry import tracer
 from app.providers.deepgram import DeepgramTranscriber
-from app.providers.gemini import GeminiStructurer
+from app.providers.gemini import MOTIVO_SIN_CONFIGURAR, GeminiStructurer
 from app.schemas.voice import Estructura, LogbookDraftResponse, Transcripcion
 from app.services.citas import verificar_incidencias
 
@@ -83,17 +83,21 @@ class LogbookDraftService:
         ms_estructurar: float | None = None
 
         if not self._structurer.configured:
-            omitida = "La estructuracion no esta configurada en este despliegue"
+            omitida = MOTIVO_SIN_CONFIGURAR
         else:
             arranque = time.perf_counter()
             with tracer.start_as_current_span("voice.structure") as span:
                 span.set_attribute("voice.structure.model", self._settings.gemini_model)
-                propuesta = await self._structurer.structure(transcripcion.texto)
+                resultado = await self._structurer.structure(transcripcion.texto)
 
-                if propuesta is None:
-                    omitida = "El estructurador no respondio; queda la transcripcion"
+                if not resultado.ok:
+                    # El motivo viene del proveedor y se propaga tal
+                    # cual: quien dicto tiene que poder distinguir "no
+                    # respondio" de "se agoto la cuota".
+                    omitida = resultado.motivo
                     span.set_attribute("voice.structure.ok", False)
                 else:
+                    propuesta = resultado.datos or {}
                     incidencias, sin_respaldo = verificar_incidencias(
                         propuesta.get("incidencias", []), transcripcion.texto
                     )

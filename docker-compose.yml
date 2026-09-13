@@ -158,7 +158,7 @@ services:
       # alias cambia de modelo por debajo sin que nadie toque nada, y
       # con el cambiarian las incidencias que el sistema saca del mismo
       # parte.
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
       MAX_AUDIO_SIZE_MB: ${MAX_AUDIO_SIZE_MB:-25}
       VOICE_SERVICE_PORT: '8001'
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

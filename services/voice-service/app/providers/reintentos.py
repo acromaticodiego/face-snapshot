@@ -45,9 +45,27 @@ from typing import Awaitable, Callable
 
 import httpx
 
-#: Estados que merecen un segundo intento. Son los que significan
-#: "ahora no puedo", no "esto que pides esta mal".
-ESTADOS_TRANSITORIOS = frozenset({429, 500, 502, 503, 504})
+#: Estados que merecen otro intento: los que significan "ahora mismo no
+#: puedo", no "esto que pides esta mal".
+ESTADOS_TRANSITORIOS = frozenset({500, 502, 503, 504})
+
+#: El 429 NO esta en la lista de arriba, y es deliberado.
+#:
+#: Un 429 es un limite de tasa, no un tropiezo del servidor. Reintentar
+#: medio segundo despues vuelve a chocar contra el mismo limite, y ademas
+#: lo empuja: cada intento cuenta para la cuota que acaba de agotarse.
+#: Es la unica respuesta donde reintentar deja las cosas PEOR que no
+#: hacerlo.
+#:
+#: Se vio en uso real: una estructuracion gasto sus intentos en
+#: 503, 429, 503 y acabo degradandose igual, despues de haber contribuido
+#: al limite con la peticion del medio.
+#:
+#: Google manda cuanto habria que esperar dentro del cuerpo del error, y
+#: suelen ser decenas de segundos: mas de lo que nadie va a estar mirando
+#: una pantalla. Asi que ante un 429 se degrada de inmediato, que es lo
+#: que este servicio ya sabe hacer sin perder nada importante.
+ESTADO_LIMITE_DE_TASA = 429
 
 
 async def con_reintento(

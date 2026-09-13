@@ -31,12 +31,13 @@ segun el dia, y nadie podria reproducir como se llego a un registro.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 import httpx
 
 from app.core.config import Settings
 from app.core.logging import get_logger
-from app.providers.reintentos import con_reintento
+from app.providers.reintentos import ESTADO_LIMITE_DE_TASA, con_reintento
 
 logger = get_logger(__name__)
 
@@ -110,6 +111,36 @@ La transcripcion puede tener errores de reconocimiento. No los \
 """
 
 
+@dataclass(frozen=True)
+class ResultadoEstructura:
+    """
+    Lo que salio de intentar estructurar, con el MOTIVO cuando no salio.
+
+    Antes esto era un `dict | None` y el motivo se perdia por el camino:
+    la pantalla acababa diciendo "el estructurador no respondio" tanto si
+    el servicio estaba caido como si la cuota del dia se habia agotado,
+    que llevan a hacer cosas distintas -esperar, o cambiar de modelo-.
+
+    Es la misma leccion que ya dejo el 503 de la transcripcion: el codigo
+    dice QUE hacer y el motivo dice POR QUE, y hacen falta los dos.
+    """
+
+    datos: dict | None
+    motivo: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.datos is not None
+
+
+#: Lo que se le cuenta a quien dicto, por cada forma de fallar.
+MOTIVO_SIN_RESPUESTA = "El estructurador no respondio; queda la transcripcion"
+MOTIVO_CUOTA = (
+    "Se agoto la cuota diaria del modelo; queda la transcripcion"
+)
+MOTIVO_SIN_CONFIGURAR = "La estructuracion no esta configurada en este despliegue"
+
+
 class GeminiStructurer:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -118,17 +149,17 @@ class GeminiStructurer:
     def configured(self) -> bool:
         return self._settings.structuring_configured
 
-    async def structure(self, transcripcion: str) -> dict | None:
+    async def structure(self, transcripcion: str) -> ResultadoEstructura:
         """
         Propone la estructura de un parte.
 
-        Devuelve `None` ante cualquier fallo, y NO lanza: quedarse sin
-        estructura es degradarse, no romperse. La transcripcion por si
-        sola ya deja constancia del turno, que es lo que de verdad no
-        se puede perder.
+        NO lanza ante un fallo: quedarse sin estructura es degradarse,
+        no romperse. La transcripcion por si sola ya deja constancia del
+        turno, que es lo que de verdad no se puede perder. Lo que si
+        hace es decir POR QUE no la hay.
         """
         if not self.configured:
-            return None
+            return ResultadoEstructura(None, MOTIVO_SIN_CONFIGURAR)
 
         cuerpo = {
             "systemInstruction": {"parts": [{"text": INSTRUCCION}]},
@@ -172,29 +203,45 @@ class GeminiStructurer:
                         headers={"x-goog-api-key": self._settings.gemini_api_key},
                     )
 
-                # TRES intentos, y el numero esta medido. Este modelo
-                # devuelve `503 UNAVAILABLE` -"experiencing high
-                # demand"- por RACHAS: sondeandolo seis veces seguidas
-                # dio 2/6 en un momento y 6/6 pocos minutos despues.
-                # Con dos intentos separados medio segundo, los dos caen
-                # dentro de la misma racha y se pierde la
-                # estructuracion de un parte que estaba bien.
+                # CUATRO intentos, y el numero sale de verlo fallar.
+                #
+                # Este modelo devuelve `503 UNAVAILABLE` -"experiencing
+                # high demand"- por RACHAS: sondeandolo seis veces
+                # seguidas dio 2/6 en un momento y 6/6 pocos minutos
+                # despues. Con tres intentos y esperas de 0.5 y 1.5
+                # segundos solo se cubren DOS segundos de racha, y se
+                # vio una racha sobrevivirlos.
+                #
+                # Con cuatro, las esperas suman unos siete segundos. Es
+                # mucho para una pantalla, pero quien dicta ya ha
+                # esperado a que se transcriba, y la alternativa no es
+                # ir mas rapido: es quedarse sin estructuracion y tener
+                # que escribir las incidencias a mano.
                 respuesta = await con_reintento(
                     pedir,
-                    intentos=3,
+                    intentos=4,
                     al_reintentar=lambda motivo: logger.info(
                         "gemini_reintento", motivo=motivo
                     ),
                 )
         except httpx.HTTPError as exc:
             logger.warning("gemini_inalcanzable", error=type(exc).__name__)
-            return None
+            return ResultadoEstructura(None, MOTIVO_SIN_RESPUESTA)
+
+        if respuesta.status_code == ESTADO_LIMITE_DE_TASA:
+            # El plan gratuito da 20 peticiones al dia POR MODELO. Es un
+            # limite que se alcanza probando, y decir "no respondio"
+            # mandaria a revisar la red cuando lo que hay que hacer es
+            # esperar a manana o cambiar GEMINI_MODEL.
+            logger.warning("gemini_cuota_agotada", modelo=self._settings.gemini_model)
+            return ResultadoEstructura(None, MOTIVO_CUOTA)
 
         if respuesta.status_code != 200:
             logger.warning("gemini_error", estado=respuesta.status_code)
-            return None
+            return ResultadoEstructura(None, MOTIVO_SIN_RESPUESTA)
 
-        return self._leer(respuesta.json())
+        datos = self._leer(respuesta.json())
+        return ResultadoEstructura(datos, None if datos else MOTIVO_SIN_RESPUESTA)
 
     def _leer(self, cuerpo: dict) -> dict | None:
         try:
