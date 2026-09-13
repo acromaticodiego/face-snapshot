@@ -372,7 +372,9 @@ backend_detector/
 ├── modelos/                  rostros.pt (solo lectura)
 ├── infrastructure/
 │   ├── docker/               Dockerfile común de NestJS
-│   └── postgres/init/        schemas, roles y permisos
+│   ├── postgres/init/        schemas, roles y permisos
+│   └── observability/        colector, Tempo, Prometheus y Grafana
+│       └── grafana/          fuentes de datos y paneles, como código
 ├── docs/adr/                 decisiones de arquitectura
 ├── docker-compose.yml
 ├── TECHNOLOGIES.md
@@ -982,6 +984,113 @@ a memoria y los eventos esperan en la outbox hasta que vuelva.
 
 ---
 
+## Observabilidad
+
+Los seis servicios exportan trazas y métricas por OTLP a un
+**OpenTelemetry Collector**, que las reparte a **Tempo** (trazas) y a
+**Prometheus** (métricas). **Grafana** las enseña juntas.
+
+```
+  6 servicios ──OTLP──▶ Collector ──▶ Tempo       (trazas)
+                            └───────▶ Prometheus  (métricas) ──▶ Grafana
+```
+
+| Qué | Dónde |
+|---|---|
+| Panel «Control de acceso» | http://localhost:3001 (carpeta *Observabilidad*) |
+| Prometheus | http://localhost:9090 |
+
+Credenciales de Grafana en el `.env` (`GRAFANA_ADMIN_USER` /
+`GRAFANA_ADMIN_PASSWORD`). El puerto es **3001** porque el 3000 lo ocupa
+el Gateway, por la misma razón que PostgreSQL usa el 5433.
+
+### Nada de esto puede dejar a nadie fuera de un edificio
+
+Los cuatro contenedores de observabilidad **no aparecen en ningún
+`depends_on` de los servicios ni en ningún `/health`**. Si el Collector
+deja de responder, los exportadores descartan en silencio con una cola
+acotada y el reconocimiento sigue igual. Convertir una avería de
+telemetría en una avería de control de acceso sería cambiar un problema
+pequeño por uno grave.
+
+Para arrancar sin instrumentación, `OTEL_SDK_DISABLED=true` o dejar
+`OTEL_EXPORTER_OTLP_ENDPOINT` vacío. No hay que tocar código.
+
+### La traza cruza el bus de eventos
+
+Una sola traza va del frame hasta la transición de turno:
+
+```
+api-gateway → access-service → face-service → vision-service
+  → COMMIT de la transacción que escribe la outbox
+  ⟨ hueco de ~450 ms ⟩
+  → access.events publish → xadd
+  → shift-service: access.events process → BEGIN…COMMIT → xack
+```
+
+**Ese hueco no es latencia: es el intervalo de sondeo del relay.** El
+evento ya está confirmado en PostgreSQL y esperando a que lo recojan,
+que es exactamente lo que la outbox transaccional promete.
+
+Funciona porque `outbox_events` guarda el `traceparent` de la petición
+en la **misma transacción** que el evento: cuando el relay publica, un
+segundo después y en otro proceso, la petición original ya no existe.
+El razonamiento completo, y lo que se acepta a cambio, en el
+[ADR 0009](docs/adr/0009-observabilidad-con-opentelemetry.md).
+
+### Dónde se va el tiempo de un frame
+
+La pregunta que el proyecto no podía contestar. Medido sobre el stack
+real (p95):
+
+| Etapa | p95 | |
+|---|---|---|
+| Petición completa | ~1 s | |
+| `vision.detect` (rostros.pt) | ~740 ms | **el cuello de botella** |
+| `vision.embed` (ArcFace) | ~450 ms | |
+| `vision.align` | ~31 ms | |
+| Búsqueda en pgvector | ~1.2 ms | no interviene |
+
+El coste está en el **detector**, no en el embedding. Y la búsqueda
+vectorial —la sospechosa intuitiva, la que justifica el índice HNSW—
+cuesta algo más de un milisegundo. Importa porque el margen del umbral
+es estrecho (limitación 5) y lo que hace falta no es cambiar el número
+sino mejorar la captura: esto dice de qué presupuesto se dispone y de
+dónde habría que sacarlo.
+
+> Son contenedores sin GPU en un portátil. Lo que vale es la
+> **proporción entre etapas**, no los valores absolutos.
+
+### Lo que no se traza
+
+Los bucles de fondo —el relay cada segundo, la espera del consumidor
+cada cinco, los medidores cada quince— y las sondas de salud, que Docker
+pega cada 30 s en cada servicio. Sin suprimirlos serían más de cien mil
+trazas diarias que solo dicen «no había nada», y enterrarían las que
+importan.
+
+### Métricas propias
+
+Solo las que ninguna traza puede dar; las de latencia y error las
+fabrica el Collector a partir de las propias trazas.
+
+| Métrica | Para qué |
+|---|---|
+| `acceso_decisiones_total{motivo,sede,zona}` | Por qué se deniega |
+| `acceso_similitud` | Distribución frente al umbral |
+| `outbox_retraso_segundos` | **La alarma importante**: edad del evento sin publicar más viejo |
+| `outbox_eventos_pendientes` | Cola del emisor |
+| `shift_consumidor_pendientes` | Cola del consumidor |
+
+Las dos últimas miden averías **distintas**: una dice «no sale del
+emisor», la otra «sale pero no se consume». Y ambas cubren el mismo
+punto ciego: el Shift Service es una proyección, así que cuando se
+atasca no falla nada visible. Las puertas abren, ninguna petición da
+error, y lo único que pasa es que las horas de la gente dejan de
+computarse hasta que alguien mira su hoja a final de mes.
+
+---
+
 ## Verificar el modelo
 
 ```bash
@@ -1048,3 +1157,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0006 | Autenticación de administradores en un servicio propio |
 | 0007 | Redis Streams para los eventos, y la presencia en el Access Service |
 | 0008 | Cada servicio es dueño de sus tipos; se retira el paquete de contratos |
+| 0009 | Observabilidad con OpenTelemetry, y la traza cruza el bus |

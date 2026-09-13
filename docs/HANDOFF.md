@@ -44,9 +44,9 @@ una cámara, el sistema decide si puede entrar según su rol, la zona y
 el horario, y registra el acceso.
 
 Arquitectura de microservicios, funcionando de extremo a extremo.
-**Fases 1, 2 y 3 completadas**, más el rol en el alta de la persona. Lo
-siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: la Fase 4
-(observabilidad).
+**Fases 1, 2, 3 y 4 completadas**, más el rol en el alta de la persona.
+Lo siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: las pruebas
+del frontend y después la Fase 5 (voz e IA).
 
 ---
 
@@ -65,6 +65,15 @@ siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: la Fase 4
 | `frontend` | React 19 + Vite + Tailwind 4 | Interfaz | 5173 |
 | PostgreSQL 17 + pgvector | — | Un schema y un rol por servicio | 5433 en host |
 | Redis 8 | — | Bus de eventos y ventanas de votación compartidas | 6380 en host |
+| `otel-collector` | OTel Contrib | Recibe la telemetría de los 6 y la reparte | interno |
+| `tempo` | Grafana Tempo 3 | Almacén de trazas | interno |
+| `prometheus` | Prometheus 3 | Métricas | 9090 en host |
+| `grafana` | Grafana 13 | Paneles | 3001 en host |
+
+Los cuatro últimos **no son dependencia de nadie**: no aparecen en
+ningún `depends_on` de los servicios ni en ningún `/health`. Si el
+Collector cae, los servicios descartan telemetría en silencio y las
+puertas siguen abriendo.
 
 **El puerto es 5433, no 5432**, porque el usuario tiene un PostgreSQL
 nativo instalado ocupando el puerto estándar. Redis está en 6380 por la
@@ -206,6 +215,22 @@ CI en GitHub Actions: tipos, compilación y tests de los 5 servicios
 Node, sintaxis del vision-service, y verificación de que no hay `.env`
 versionado.
 
+Para comprobar la observabilidad hace falta el stack levantado y algo de
+tráfico. La prueba de humo sirve de generador: cada pasada produce una
+traza completa que cruza el bus. Después:
+
+```bash
+# ¿Qué servicios ve Tempo?
+docker compose exec prometheus wget -qO-   http://tempo:3200/api/search/tag/service.name/values
+
+# Una traza concreta, por su identificador
+docker compose exec postgres psql -U facedetector -d face_access -t   -c "select trace_context from access_svc.outbox_events
+      where trace_context is not null order by created_at desc limit 1;"
+```
+
+El `trace_context` de la fila lleva el identificador de la traza entre
+los dos primeros guiones.
+
 ---
 
 ## Limitaciones conocidas y asumidas
@@ -233,7 +258,8 @@ fallos**:
    comparten en Redis. Lo que no escala ahora es el consumidor del
    shift-service: con varios, los eventos de una persona podrían
    procesarse a destiempo (la máquina descarta lo desordenado, así que
-   perdería transiciones y no las corrompería).
+   perdería transiciones y no las corrompería). Desde la Fase 4 al menos
+   **se ve**: `shift_consumidor_pendientes` mide el retraso del grupo.
 5. **El umbral 0.38 va ajustado.** Ya está medido con datos reales: la
    separación entre nubes es 0.0641 y no el 0.2552 de las fotos de
    archivo. El panel lo muestra. Lo que hace falta no es cambiar el
@@ -301,32 +327,53 @@ crear a alguien sin rol.** Cerrarlo en el servidor obligaría al Face
 Service a llamar al Access Service, invirtiendo la única dirección de
 dependencia que hoy está limpia. Lo exige el asistente, no el servidor.
 
+### ~~Fase 4 — Observabilidad~~ · HECHA
+
+Los seis servicios instrumentados con OpenTelemetry, un Collector en
+medio, Tempo, Prometheus y Grafana. Todo lo previsto, incluida la traza
+que cruza el bus. Ver [ADR 0009](adr/0009-observabilidad-con-opentelemetry.md).
+
+**El hallazgo de esta fase.** Ya se sabe dónde se va el tiempo de un
+frame (p95, medido sobre el stack real):
+
+| Etapa | p95 | |
+|---|---|---|
+| Petición completa | ~1 s | |
+| `vision.detect` | ~740 ms | **el cuello de botella** |
+| `vision.embed` | ~450 ms | |
+| `vision.align` | ~31 ms | |
+| pgvector | ~1.2 ms | no interviene |
+
+El coste está en el **detector**, no en el embedding, y la búsqueda
+vectorial —la sospechosa intuitiva— cuesta algo más de un milisegundo.
+Son contenedores sin GPU en un portátil: vale la proporción, no el
+valor absoluto.
+
+**Dos cosas que no hay que "arreglar".**
+
+1. **El hueco de ~450 ms en medio de la traza no es latencia**, es el
+   intervalo de sondeo del relay. El evento ya está confirmado en
+   PostgreSQL esperando a que lo recojan, que es lo que la outbox
+   promete.
+2. **Los bucles de fondo no se trazan a propósito** —el relay, la
+   espera del consumidor, los medidores, las sondas de salud—. Sin
+   suprimirlos serían más de cien mil trazas diarias diciendo «no había
+   nada». Si añades un temporizador, súmalo a esa lista.
+
+**El error que costó encontrar**, por si reaparece: el span de
+publicación del relay heredaba la supresión de trazado del sondeo,
+porque se derivaba del contexto activo. Nacía sin registrar y el tramo
+asíncrono no salía en ninguna traza, sin ningún error por ningún sitio.
+Se extrae desde `ROOT_CONTEXT`.
+
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Fase 4, observabilidad.** El grueso del trabajo.
-
-**2. Pruebas del frontend.** Cero ahora mismo, y ya hay tres pantallas
+**1. Pruebas del frontend.** Cero ahora mismo, y ya hay tres pantallas
 con lógica de presentación real (la máquina de estados pintada en
 `/home`, las traducciones exhaustivas de motivos en el panel, y ahora
 el asistente de alta con sus tres pasos y sus estados incompletos).
 
-### Fase 4 — Observabilidad
-- OpenTelemetry en los **6** servicios + Prometheus + Grafana
-- El objetivo concreto: una traza que muestre
-
-  ```
-  Gateway → Access → Face → Vision → (decisión) → outbox → Redis → Shift
-  ```
-
-  con los tiempos de cada tramo. Es la captura más diferenciadora para
-  el post, y ahora vale más que cuando se escribió este plan: entonces
-  eran cuatro servicios síncronos, hoy hay seis y un camino asíncrono
-  en medio. Una traza que cruce el bus demuestra que la arquitectura de
-  eventos no es un diagrama.
-- Responde además una pregunta que hoy no se puede contestar: **cuánto
-  tarda de verdad un frame**, y si el cuello de botella es el detector,
-  el embedding o pgvector. Importa porque el umbral va ajustado y no se
-  sabe cuánto margen hay para gastar en una captura mejor.
+**2. Fase 5, voz e IA.** Descrita más abajo, sin cambios.
 
 ### Fase 5 — Voz e IA
 - `voice-service` (Python, sin estado, simétrico al vision-service):
@@ -414,3 +461,24 @@ cd services/shift-service && npx prisma migrate deploy
   `docker compose up -d --no-deps a b c`.
 - Docker Desktop se cae solo en esta máquina de vez en cuando. Si algo
   deja de responder, compruébalo antes de buscar el fallo en el código.
+- La resolución de DNS de Docker Hub falla a ratos en esta máquina
+  (`lookup auth.docker.io: no such host`). No es el proyecto: reintenta
+  el `docker compose build` y a la segunda suele ir.
+- **Cuidado al lanzar `node scripts/ci-local.mjs` sin `--rapido` y
+  cortarlo.** Hace `npm ci` servicio por servicio, y si se interrumpe
+  en medio deja un `node_modules` a medias que después falla con
+  `ENOTEMPTY`. Se arregla con `rm -rf node_modules && npm ci`.
+- **Un span puede nacer sin registrar y no avisar de nada.** Si un tramo
+  no aparece en la traza y no hay ningún error, sospecha del contexto
+  del que cuelga: derivar de `context.active()` dentro de un bloque con
+  el trazado suprimido hereda la supresión. Ver el ADR 0009.
+- **No mires una métrica de OpenTelemetry por su nombre de Prometheus a
+  ojo.** `otelcol_receiver_accepted_spans` no lleva sufijo `_total` en
+  la versión actual del Collector, y buscarlo con el sufijo da «no hay
+  datos» cuando en realidad todo funciona. Pregunta al endpoint de
+  métricas antes de concluir que algo está roto.
+- **Los límites por defecto de un histograma mienten con educación.**
+  El p95 de una etapa que tarda 400 ms salía 1700 ms porque el bucket
+  iba de 1 s a 2 s. El número no era falso: era la única respuesta
+  posible con esa resolución. Ajusta los límites al rango real del
+  sistema.
