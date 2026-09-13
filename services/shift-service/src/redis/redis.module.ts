@@ -25,6 +25,26 @@ import Redis from 'ioredis';
 
 export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
 
+/**
+ * Conexión SEPARADA, solo para la sonda de salud.
+ *
+ * POR QUE NO VALE LA CONEXION PRINCIPAL
+ * ─────────────────────────────────────
+ * El consumidor vive dentro de un `XREADGROUP ... BLOCK 5000`, que deja
+ * la conexión esperando en el servidor. Redis atiende los comandos de
+ * una conexión EN ORDEN, así que un `PING` enviado por ese mismo
+ * socket se queda encolado detrás del bloqueo hasta que termine.
+ *
+ * El efecto era que `/health` decía «bus inalcanzable» con Redis
+ * perfectamente sano. Medido: 5 de cada 8 sondas fallaban, que es justo
+ * la proporción entre el plazo del ping (2 s) y el bloqueo del
+ * consumidor (5 s).
+ *
+ * Una sonda que miente es peor que no tenerla: enseña a ignorar la
+ * única señal que avisaría de un corte de verdad.
+ */
+export const REDIS_PROBE = Symbol('REDIS_PROBE');
+
 /** El cliente puede no existir: siempre hay que comprobarlo antes de usarlo. */
 export type OptionalRedis = Redis | null;
 
@@ -69,12 +89,47 @@ export type OptionalRedis = Redis | null;
         return client;
       },
     },
+    {
+      provide: REDIS_PROBE,
+      inject: [REDIS_CLIENT],
+      useFactory: (client: OptionalRedis): OptionalRedis => {
+        if (!client) return null;
+
+        // `duplicate` copia las opciones del cliente principal, y hay
+        // dos que para una sonda son exactamente las contrarias de lo
+        // que conviene:
+        //
+        //   · `maxRetriesPerRequest: null` hace que un comando espere
+        //     indefinidamente a que Redis vuelva. En el consumidor eso
+        //     es lo que se quiere; en una sonda significa colgarse.
+        //   · la cola de espera guarda el comando hasta reconectar, de
+        //     modo que un `PING` con Redis caído no falla, se aplaza.
+        //
+        // Aquí se invierten las dos: la sonda tiene que responder
+        // rápido y decir la verdad, aunque la verdad sea que no hay
+        // bus.
+        const probe = client.duplicate({
+          maxRetriesPerRequest: 1,
+          enableOfflineQueue: false,
+          connectTimeout: 1_000,
+        });
+
+        // Sin este manejador, un fallo de conexión de la sonda emite un
+        // `error` sin escuchar y tumba el proceso. Se traga a
+        // propósito: lo que la sonda averigua se cuenta respondiendo a
+        // `/health`, no lanzando.
+        probe.on('error', () => undefined);
+
+        return probe;
+      },
+    },
   ],
-  exports: [REDIS_CLIENT],
+  exports: [REDIS_CLIENT, REDIS_PROBE],
 })
 export class RedisModule implements OnApplicationShutdown {
   constructor(
     @Inject(REDIS_CLIENT) private readonly client: OptionalRedis,
+    @Inject(REDIS_PROBE) private readonly probe: OptionalRedis,
   ) {}
 
   /**
@@ -84,9 +139,14 @@ export class RedisModule implements OnApplicationShutdown {
    * recarga y Redis acaba rechazando clientes nuevos.
    */
   async onApplicationShutdown(): Promise<void> {
-    if (!this.client) return;
-    // `quit` espera a que Redis confirme; si ya está caído, no hay a
-    // quién esperar y se corta sin más.
-    await this.client.quit().catch(() => this.client?.disconnect());
+    // Las dos conexiones, no solo la principal: la sonda es una
+    // conexión de pleno derecho y dejarla abierta tiene el mismo
+    // efecto que dejaba la otra.
+    for (const conexion of [this.probe, this.client]) {
+      if (!conexion) continue;
+      // `quit` espera a que Redis confirme; si ya está caído, no hay a
+      // quién esperar y se corta sin más.
+      await conexion.quit().catch(() => conexion.disconnect());
+    }
   }
 }

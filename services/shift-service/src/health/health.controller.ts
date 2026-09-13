@@ -2,7 +2,7 @@ import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { REDIS_CLIENT, type OptionalRedis } from '../redis/redis.module';
+import { REDIS_PROBE, type OptionalRedis } from '../redis/redis.module';
 
 /**
  * Cuanto se espera al bus antes de darlo por caido.
@@ -17,7 +17,7 @@ const PING_TIMEOUT_MS = 2_000;
 export class HealthController {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(REDIS_CLIENT) private readonly redis: OptionalRedis,
+    @Inject(REDIS_PROBE) private readonly redis: OptionalRedis,
   ) {}
 
   @Get()
@@ -33,13 +33,18 @@ export class HealthController {
     // razon de ser -que la jornada avance- deja de cumplirse. Que se
     // note es lo correcto.
     //
-    // EL PING VA CON PLAZO, Y NO ES UN DETALLE
-    // ----------------------------------------
-    // Este cliente reintenta indefinidamente a proposito: el consumidor
-    // vive de una lectura bloqueante y lo que se quiere ante un corte
-    // es que reanude solo. El efecto secundario es que un `ping` con
-    // Redis caido no falla, se queda encolado para siempre, y sin plazo
-    // esta peticion no responderia jamas.
+    // EL PING VA POR UNA CONEXION APARTE, Y ESO SI ES UN DETALLE
+    // ----------------------------------------------------------
+    // La conexion principal esta dentro de un `XREADGROUP ... BLOCK`
+    // casi todo el tiempo, y Redis atiende los comandos de una misma
+    // conexion EN ORDEN: un `ping` por ese socket se encola detras del
+    // bloqueo. Esta sonda decia «bus inalcanzable» con Redis sano 5 de
+    // cada 8 veces antes de separarlas.
+    //
+    // La conexion de la sonda ademas NO reintenta indefinidamente ni
+    // guarda el comando en cola: tiene que responder rapido y decir la
+    // verdad, aunque la verdad sea que no hay bus. El plazo de abajo
+    // se queda como ultima red.
     //
     // Un /health colgado es peor que uno que informa del fallo: la
     // sonda del orquestador agota su tiempo y el servicio parece
