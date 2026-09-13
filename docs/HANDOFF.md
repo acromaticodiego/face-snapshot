@@ -255,6 +255,11 @@ fallos**:
    defecto, el ataque sintético más fuerte que el detector tolera **no
    se detecta**.
 
+   **CONFIRMADO EL 2026-09-13:** una foto en la pantalla de un móvil
+   entró sin levantar ni una sospecha. Medido: pico 14.7 frente a 14.0
+   de una cara real. La señal no separa. Detalle completo más abajo, en
+   «PRIMER ATAQUE REAL MEDIDO».
+
    El sistema sigue **sin ser apto para control de acceso real**, ahora
    porque su defensa no está validada en lugar de no existir. Lo que
    haría falta para encender `HARD`, y en qué orden, está en el
@@ -453,6 +458,55 @@ lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
 - **Servidor MCP** que expone el dominio como herramientas
   (`quien_esta_dentro`, `horas_trabajadas`, `novedades_de_turno`)
 - Las claves de Deepgram y Gemini están en el `.env` del usuario
+
+### PRIMER ATAQUE REAL MEDIDO — la detección de vida NO funciona
+
+**2026-09-13.** El usuario probó con una foto de su propia cara en la
+pantalla del móvil. **Le dejó entrar**, y esto es lo que hay que saber:
+
+| | valor |
+|---|---|
+| Detalle fino medido | **0.4708** |
+| Pico periódico medido | **14.7** |
+| Pico de una captura directa | 14.0 |
+| Umbrales por defecto | detalle < 0.25 · pico > 90 |
+| Sospechas registradas | **CERO** |
+
+El pico es la señal que existe para delatar la rejilla de una pantalla.
+Frente a una pantalla real marcó **14.7**, contra **14.0** de una cara
+de verdad. **No se movió.** No es que el umbral esté mal puesto: es que
+la señal no separa nada.
+
+Correlación que lo confirma: la medición es de las 09:58:41 y el
+`GRANTED` de «diego ossa» con similitud 0.756 es de las 09:58:43, dos
+segundos después.
+
+**Qué invalida esto.** Las mediciones sintéticas del ADR 0010 —donde
+una «pantalla» daba un pico de 149 frente a 14— describían una rejilla
+aplicada a nivel de píxel sobre la imagen. Una pantalla real fotografiada
+por una webcam a esta distancia **no produce esa rejilla**: el sensor
+promedia y el patrón desaparece. La advertencia del ADR («salen de UNA
+imagen y de degradaciones FABRICADAS») era correcta, y ahora está
+confirmada por los hechos.
+
+**Qué NO invalida.** El mecanismo funciona: la evidencia viaja, los
+modos hacen lo que dicen, cuesta 4.7 ms y `SOFT` no denegó, que es lo
+que evitó que este fallo dejara a nadie fuera. Lo que falla es la
+SEÑAL, no el andamiaje.
+
+**Qué hacer con esto, por orden:**
+
+1. **No subir el umbral del pico.** Con 14.7 frente a 14.0 no hay
+   ningún umbral que separe: bajarlo lo suficiente para pillar la
+   pantalla rechazaría también las caras reales.
+2. **Recoger muestras ahora que hay una fuente de ataque disponible.**
+   El usuario tiene el móvil y su cara enrolada: 20 capturas de pantalla
+   y 20 directas, con la misma webcam, y con eso ya se puede medir si
+   ALGUNA señal separa.
+3. Si el análisis espectral no separa —que es lo que este dato
+   sugiere—, las dos vías que quedan están descritas en el ADR 0010:
+   un modelo entrenado (MiniFASNet) o el reto activo (parpadear), que
+   es el único que sí se puede demostrar.
 
 ### ~~Fase 6 — Anti-spoofing~~ · HECHA, con una advertencia grande
 
