@@ -43,8 +43,8 @@ const FULL_DAYS: Record<number, string> = {
 export function HourlyHeatmap({ data }: { data: HourlyResponse | null }) {
   if (!data) {
     return (
-      <GlassCard className="p-5">
-        <div className="h-48 animate-pulse rounded-lg bg-white/5" />
+      <GlassCard className="shrink-0 p-4">
+        <div className="h-40 animate-pulse rounded-lg bg-white/5" />
       </GlassCard>
     );
   }
@@ -55,7 +55,7 @@ export function HourlyHeatmap({ data }: { data: HourlyResponse | null }) {
   const busiest = Math.max(1, ...data.cells.map((cell) => cell.total));
 
   return (
-    <GlassCard className="p-5">
+    <GlassCard className="shrink-0 p-4">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
           <CalendarClock className="h-4 w-4 text-vault-blue" />
@@ -65,54 +65,52 @@ export function HourlyHeatmap({ data }: { data: HourlyResponse | null }) {
           {data.timezone}
         </span>
       </div>
-      <p className="mb-4 text-xs text-white/35">
-        Intentos de acceso en las últimas cuatro semanas, en hora local de
-        la sede.
+      <p className="mb-3 text-[11px] leading-tight text-white/35">
+        Últimas cuatro semanas, en hora local de la sede.
       </p>
 
-      <div className="overflow-x-auto">
-        <div className="min-w-[34rem]">
-          {/* ── Horas ────────────────────────────────────────── */}
-          <div className="mb-1 flex gap-px pl-5">
-            {Array.from({ length: 24 }, (_, hour) => (
-              <span
-                key={hour}
-                className="flex-1 text-center font-mono text-[9px] text-white/25"
-              >
-                {/* Solo las horas pares: con 24 etiquetas se solapan. */}
-                {hour % 2 === 0 ? String(hour).padStart(2, '0') : ''}
-              </span>
-            ))}
-          </div>
-
-          {/* ── Cuadrícula ───────────────────────────────────── */}
-          {WEEKDAYS.map((day) => (
-            <div key={day.index} className="mb-px flex items-center gap-px">
-              <span className="w-5 shrink-0 font-mono text-[10px] text-white/30">
-                {day.label}
-              </span>
-              {Array.from({ length: 24 }, (_, hour) => {
-                const cell = byCell.get(`${day.index}-${hour}`);
-                return (
-                  <Cell
-                    key={hour}
-                    total={cell?.total ?? 0}
-                    granted={cell?.granted ?? 0}
-                    busiest={busiest}
-                    title={`${FULL_DAYS[day.index]} a las ${String(hour).padStart(2, '0')}:00 — ${
-                      cell
-                        ? `${cell.total} intentos, ${cell.granted} concedidos`
-                        : 'sin actividad'
-                    }`}
-                  />
-                );
-              })}
-            </div>
+      <div>
+        {/* ── Horas ────────────────────────────────────────── */}
+        <div className="mb-1 flex gap-px pl-5">
+          {Array.from({ length: 24 }, (_, hour) => (
+            <span
+              key={hour}
+              className="flex-1 text-center font-mono text-[9px] text-white/25"
+            >
+              {/* Una de cada tres: con 24 etiquetas se solapan en una
+                  columna estrecha. */}
+              {hour % 3 === 0 ? String(hour).padStart(2, '0') : ''}
+            </span>
           ))}
         </div>
+
+        {/* ── Cuadrícula ───────────────────────────────────── */}
+        {WEEKDAYS.map((day) => (
+          <div key={day.index} className="mb-px flex items-center gap-px">
+            <span className="w-5 shrink-0 font-mono text-[10px] text-white/30">
+              {day.label}
+            </span>
+            {Array.from({ length: 24 }, (_, hour) => {
+              const cell = byCell.get(`${day.index}-${hour}`);
+              return (
+                <Cell
+                  key={hour}
+                  total={cell?.total ?? 0}
+                  granted={cell?.granted ?? 0}
+                  busiest={busiest}
+                  title={`${FULL_DAYS[day.index]} a las ${String(hour).padStart(2, '0')}:00 — ${
+                    cell
+                      ? `${cell.total} intentos, ${cell.granted} concedidos`
+                      : 'sin actividad'
+                  }`}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 text-[11px] text-white/35">
+      <div className="mt-3 flex items-center gap-2 text-[11px] text-white/35">
         <span>menos</span>
         {[0, 0.25, 0.5, 0.75, 1].map((level) => (
           <span
@@ -155,7 +153,7 @@ function Cell({
   return (
     <span
       title={title}
-      className={`h-4 flex-1 rounded-sm ${
+      className={`h-3.5 min-w-0 flex-1 rounded-sm ${
         mostlyDenied ? 'bg-denied' : 'bg-vault-blue'
       }`}
       style={{ opacity: total === 0 ? 0.06 : 0.2 + intensity * 0.8 }}

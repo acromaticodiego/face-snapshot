@@ -65,8 +65,8 @@ const LEGEND: Array<{ family: Family; text: string }> = [
 export function DenialsCard({ denials }: { denials: DenialsResponse | null }) {
   if (!denials) {
     return (
-      <GlassCard className="p-5">
-        <div className="h-40 animate-pulse rounded-lg bg-white/5" />
+      <GlassCard className="flex-1 p-4">
+        <div className="h-full min-h-32 animate-pulse rounded-lg bg-white/5" />
       </GlassCard>
     );
   }
@@ -75,12 +75,12 @@ export function DenialsCard({ denials }: { denials: DenialsResponse | null }) {
   const worst = Math.max(1, ...denials.byReason.map((row) => row.count));
 
   return (
-    <GlassCard className="p-5">
-      <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-white">
+    <GlassCard className="flex min-h-0 flex-1 flex-col p-4">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
         <ShieldX className="h-4 w-4 text-vault-orange" />
         Denegaciones
       </h2>
-      <p className="mb-4 text-xs text-white/35">
+      <p className="mb-3 text-[11px] text-white/35">
         {denials.denied} de {total} intentos en los últimos 7 días
         {denials.anomalies > 0 && ` · ${denials.anomalies} con anomalía`}
       </p>
@@ -91,7 +91,7 @@ export function DenialsCard({ denials }: { denials: DenialsResponse | null }) {
         </p>
       ) : (
         <>
-          <ul className="space-y-2.5">
+          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {denials.byReason.map((row) => (
               <li key={row.reason}>
                 <div className="mb-1 flex items-baseline justify-between gap-2">
@@ -115,7 +115,7 @@ export function DenialsCard({ denials }: { denials: DenialsResponse | null }) {
             ))}
           </ul>
 
-          <ul className="mt-4 space-y-1 border-t border-white/8 pt-3">
+          <ul className="mt-3 shrink-0 space-y-0.5 border-t border-white/8 pt-2">
             {LEGEND.map((item) => (
               <li
                 key={item.family}

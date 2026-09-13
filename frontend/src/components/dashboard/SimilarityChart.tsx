@@ -47,13 +47,13 @@ const VERDICTS = {
   },
 } as const;
 
-const CHART_HEIGHT = 132;
+const CHART_HEIGHT = 104;
 
 export function SimilarityChart({ data }: { data: SimilarityResponse | null }) {
   if (!data) {
     return (
-      <GlassCard className="p-5">
-        <div className="h-64 animate-pulse rounded-lg bg-white/5" />
+      <GlassCard className="shrink-0 p-4">
+        <div className="h-56 animate-pulse rounded-lg bg-white/5" />
       </GlassCard>
     );
   }
@@ -76,7 +76,7 @@ export function SimilarityChart({ data }: { data: SimilarityResponse | null }) {
   const thresholdX = ((threshold - first) / span) * 100;
 
   return (
-    <GlassCard className="p-5">
+    <GlassCard className="shrink-0 p-4">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
           <Ruler className="h-4 w-4 text-vault-purple" />
@@ -91,7 +91,7 @@ export function SimilarityChart({ data }: { data: SimilarityResponse | null }) {
           Umbral {threshold} · {verdict.label}
         </span>
       </div>
-      <p className="mb-5 text-xs text-white/35">{verdict.text}</p>
+      <p className="mb-3 text-[11px] leading-tight text-white/35">{verdict.text}</p>
 
       {/* ── Histograma ───────────────────────────────────────── */}
       <div className="relative" style={{ height: CHART_HEIGHT }}>
@@ -136,7 +136,7 @@ export function SimilarityChart({ data }: { data: SimilarityResponse | null }) {
       </div>
 
       {/* ── Lectura ──────────────────────────────────────────── */}
-      <dl className="mt-5 grid grid-cols-3 gap-3 border-t border-white/8 pt-4">
+      <dl className="mt-3 grid grid-cols-3 gap-3 border-t border-white/8 pt-3">
         <Figure
           label="separación"
           value={analysis.separation}
@@ -154,7 +154,7 @@ export function SimilarityChart({ data }: { data: SimilarityResponse | null }) {
         />
       </dl>
 
-      <div className="mt-4 flex gap-4 text-[11px] text-white/40">
+      <div className="mt-3 flex gap-4 text-[11px] text-white/40">
         <Legend className="bg-vault-green/80">
           reconocidos ({analysis.recognized.samples})
         </Legend>
@@ -163,10 +163,20 @@ export function SimilarityChart({ data }: { data: SimilarityResponse | null }) {
         </Legend>
       </div>
 
-      <p className="mt-4 flex gap-2 rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-white/35">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        {analysis.caveat}
-      </p>
+      {/* El aviso va plegado: ocupa una linea y se abre al pulsarlo.
+          Tiene que estar a la vista para que nadie lea el grafico como
+          si midiera tasas de error, pero cuatro lineas de texto legal
+          en un panel de operacion empujan fuera de la pantalla lo que
+          si se mira a diario. */}
+      <details className="group mt-3">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] text-white/30 hover:text-white/50">
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          Qué NO mide este gráfico
+        </summary>
+        <p className="mt-2 rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-[11px] leading-relaxed text-white/35">
+          {analysis.caveat}
+        </p>
+      </details>
     </GlassCard>
   );
 }
@@ -203,7 +213,7 @@ function Figure({
   return (
     <div>
       <dt className="text-[11px] text-white/35">{label}</dt>
-      <dd className="text-lg font-bold tracking-tight text-white tabular-nums">
+      <dd className="text-base leading-tight font-bold tracking-tight text-white tabular-nums">
         {value === null ? '—' : value.toFixed(3)}
       </dd>
       <p className="text-[10px] leading-tight text-white/25">{hint}</p>

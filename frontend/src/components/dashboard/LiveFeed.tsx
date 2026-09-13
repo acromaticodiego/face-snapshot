@@ -34,8 +34,11 @@ const ANOMALIES: Record<'ANTIPASSBACK_SOFT' | 'DUPLICATE_PASSAGE', string> = {
 
 export function LiveFeed({ logs }: { logs: AccessLogRow[] | null }) {
   return (
-    <GlassCard className="p-5">
-      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+    // La tarjeta ocupa el alto de su columna y la LISTA es lo que
+    // desborda, no la página: el encabezado tiene que seguir visible
+    // mientras se recorre el histórico.
+    <GlassCard className="flex h-full min-h-0 flex-col p-4">
+      <h2 className="mb-3 flex shrink-0 items-center gap-2 text-sm font-semibold text-white">
         <Radio className="h-4 w-4 text-vault-green" />
         Actividad reciente
       </h2>
@@ -43,7 +46,7 @@ export function LiveFeed({ logs }: { logs: AccessLogRow[] | null }) {
       {logs === null ? (
         <ul className="space-y-2" aria-label="Cargando actividad">
           {Array.from({ length: 6 }, (_, i) => (
-            <li key={i} className="h-12 animate-pulse rounded-lg bg-white/5" />
+            <li key={i} className="h-10 animate-pulse rounded-lg bg-white/5" />
           ))}
         </ul>
       ) : logs.length === 0 ? (
@@ -51,7 +54,7 @@ export function LiveFeed({ logs }: { logs: AccessLogRow[] | null }) {
           Todavía no hay intentos registrados.
         </p>
       ) : (
-        <ul className="divide-y divide-white/6">
+        <ul className="min-h-0 flex-1 divide-y divide-white/6 overflow-y-auto pr-1">
           {logs.map((log) => (
             <Row key={log.id} log={log} />
           ))}
@@ -66,24 +69,24 @@ function Row({ log }: { log: AccessLogRow }) {
   const Direction = log.direction === 'OUT' ? ArrowUpRight : ArrowDownLeft;
 
   return (
-    <li className="flex items-center gap-3 py-2.5">
+    <li className="flex items-center gap-2.5 py-2">
       <span
         className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',
           granted
             ? 'border-vault-green/35 bg-vault-green/10 text-vault-green'
             : 'border-denied/35 bg-denied/10 text-denied',
         )}
       >
         {granted ? (
-          <Direction className="h-4 w-4" aria-hidden="true" />
+          <Direction className="h-3.5 w-3.5" aria-hidden="true" />
         ) : (
-          <ShieldAlert className="h-4 w-4" aria-hidden="true" />
+          <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
         )}
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm text-white/85">
+        <p className="truncate text-[13px] leading-tight text-white/85">
           {/* El nombre es null cuando no se reconoció a nadie, y decir
               "Desconocido" es más honesto que dejar el hueco vacío. */}
           {log.personName ?? 'Desconocido'}
@@ -93,7 +96,7 @@ function Row({ log }: { log: AccessLogRow }) {
             </span>
           )}
         </p>
-        <p className="truncate text-xs text-white/40">
+        <p className="truncate text-[11px] leading-tight text-white/40">
           {REASONS[log.reason]}
           {log.accessPointName && ` · ${log.accessPointName}`}
         </p>

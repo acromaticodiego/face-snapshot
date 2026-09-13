@@ -82,7 +82,7 @@ export function AdminDashboardPage() {
       const [presence, shifts, logs, denials] = await Promise.all([
         api.presence(),
         api.openShifts(),
-        api.accessLogs(15),
+        api.accessLogs(40),
         api.denialStats(7),
       ]);
       setData({ presence, shifts, logs: logs.items, denials });
@@ -132,12 +132,20 @@ export function AdminDashboardPage() {
 
   return (
     <AdminShell
-      width="max-w-6xl"
+      fill
+      width="max-w-[112rem]"
       title="Panel de operación"
       subtitle="Quién está dentro ahora mismo y qué ha pasado en las puertas."
       actions={
         <div className="flex items-center gap-3 text-xs text-white/40">
-          {updatedAt && <span>Actualizado {updatedAt.toLocaleTimeString('es')}</span>}
+          {error && (
+            <span role="status" className="text-denied">
+              {error}
+            </span>
+          )}
+          {updatedAt && (
+            <span>Actualizado {updatedAt.toLocaleTimeString('es')}</span>
+          )}
           <RefreshCw
             className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')}
             aria-hidden="true"
@@ -145,17 +153,8 @@ export function AdminDashboardPage() {
         </div>
       }
     >
-      {error && (
-        <p
-          role="status"
-          className="mb-6 rounded-xl border border-denied/40 bg-denied/10 px-4 py-3 text-sm text-denied"
-        >
-          {error}
-        </p>
-      )}
-
       {/* ── Aforo y estados ──────────────────────────────────── */}
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-3 grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile
           icon={Users}
           accent="green"
@@ -167,41 +166,46 @@ export function AdminDashboardPage() {
           icon={Activity}
           accent="green"
           label="En turno"
-          value={counts.EN_TURNO ?? 0}
+          value={data ? (counts.EN_TURNO ?? 0) : undefined}
         />
         <StatTile
           icon={Coffee}
           accent="orange"
           label="En descanso"
-          value={counts.EN_DESCANSO ?? 0}
+          value={data ? (counts.EN_DESCANSO ?? 0) : undefined}
         />
         <StatTile
           icon={Pause}
           accent="orange"
           label="En pausa"
-          value={counts.EN_PAUSA ?? 0}
+          value={data ? (counts.EN_PAUSA ?? 0) : undefined}
           hint="Salieron y aún pueden volver"
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-5">
-        <div className="lg:col-span-3">
+      {/*
+        Tres columnas que se reparten el alto que queda. Cada una
+        desborda por dentro si le hace falta, así que la página nunca
+        crece: un panel de operación que obliga a bajar es un panel
+        cuya mitad de abajo no mira nadie.
+      */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-12">
+        <div className="flex min-h-0 flex-col lg:col-span-4">
           <LiveFeed logs={data?.logs ?? null} />
         </div>
 
-        <div className="space-y-6 lg:col-span-2">
+        <div className="flex min-h-0 flex-col gap-3 lg:col-span-4">
           <DenialsCard denials={data?.denials ?? null} />
           <OccupancyByZone
             presence={data?.presence ?? null}
             shifts={data?.shifts ?? null}
           />
         </div>
-      </div>
 
-      {/* ── Analisis: cambia despacio, se carga una vez ──────── */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <SimilarityChart data={analysis?.similarity ?? null} />
-        <HourlyHeatmap data={analysis?.hourly ?? null} />
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto lg:col-span-4">
+          <SimilarityChart data={analysis?.similarity ?? null} />
+          <HourlyHeatmap data={analysis?.hourly ?? null} />
+        </div>
       </div>
     </AdminShell>
   );
@@ -217,8 +221,8 @@ function OccupancyByZone({
 }) {
   if (!presence) {
     return (
-      <GlassCard className="p-5">
-        <div className="h-24 animate-pulse rounded-lg bg-white/5" />
+      <GlassCard className="shrink-0 p-4">
+        <div className="h-20 animate-pulse rounded-lg bg-white/5" />
       </GlassCard>
     );
   }
@@ -229,8 +233,8 @@ function OccupancyByZone({
   const busiest = Math.max(1, ...zones.map(([, zone]) => zone.count));
 
   return (
-    <GlassCard className="p-5">
-      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+    <GlassCard className="max-h-[40%] shrink-0 overflow-y-auto p-4">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
         <Building2 className="h-4 w-4 text-vault-blue" />
         Aforo por zona
       </h2>
@@ -240,7 +244,7 @@ function OccupancyByZone({
           No hay nadie dentro en este momento.
         </p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-2">
           {zones.map(([zoneId, zone]) => (
             <li key={zoneId}>
               <div className="mb-1 flex items-baseline justify-between gap-2">
@@ -263,7 +267,7 @@ function OccupancyByZone({
       )}
 
       {shifts && shifts.items.length > 0 && (
-        <p className="mt-4 border-t border-white/8 pt-3 text-xs text-white/35">
+        <p className="mt-3 border-t border-white/8 pt-2 text-[11px] text-white/35">
           {shifts.items.length} jornada
           {shifts.items.length === 1 ? '' : 's'} abierta
           {shifts.items.length === 1 ? '' : 's'}

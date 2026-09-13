@@ -30,21 +30,25 @@ export function StatTile({
   accent: Accent;
 }) {
   return (
-    <GlassCard className="p-4">
+    <GlassCard className="px-4 py-3">
       <div className="flex items-center gap-2">
         <Icon className={cn('h-4 w-4', ACCENT_TEXT[accent])} aria-hidden="true" />
         <span className="text-xs font-medium text-white/50">{label}</span>
       </div>
 
       {value === undefined ? (
-        <span className="mt-2 block h-9 w-14 animate-pulse rounded bg-white/10" />
+        <span className="mt-1 block h-7 w-12 animate-pulse rounded bg-white/10" />
       ) : (
-        <p className="mt-1 text-3xl font-bold tracking-tight text-white tabular-nums">
+        <p className="text-2xl leading-tight font-bold tracking-tight text-white tabular-nums">
           {value}
         </p>
       )}
 
-      {hint && <p className="mt-1 text-[11px] text-white/30">{hint}</p>}
+      {hint && (
+        <p className="truncate text-[10px] leading-tight text-white/30">
+          {hint}
+        </p>
+      )}
     </GlassCard>
   );
 }

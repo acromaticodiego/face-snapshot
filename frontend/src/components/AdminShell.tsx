@@ -26,6 +26,7 @@ export function AdminShell({
   actions,
   children,
   width = 'max-w-4xl',
+  fill = false,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -33,18 +34,44 @@ export function AdminShell({
   actions?: ReactNode;
   children: ReactNode;
   width?: string;
+  /**
+   * Ocupa exactamente el alto de la ventana, sin barra de
+   * desplazamiento en la página.
+   *
+   * Es lo que quiere un panel de operación: se mira de un vistazo, y
+   * cualquier dato que obligue a bajar es un dato que nadie mira. Cada
+   * bloque se encarga entonces de desbordar por dentro si le hace
+   * falta, en lugar de empujar al resto fuera de la pantalla.
+   */
+  fill?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
   const admin = adminSession.getProfile();
 
   return (
-    <div className="relative min-h-dvh bg-vault-bg">
+    <div
+      className={cn(
+        'relative bg-vault-bg',
+        fill ? 'flex h-dvh flex-col overflow-hidden' : 'min-h-dvh',
+      )}
+    >
       <VaultBackground />
 
-      <div className={cn('relative z-10 mx-auto px-4 py-8', width)}>
+      <div
+        className={cn(
+          'relative z-10 mx-auto w-full px-4',
+          fill ? 'flex min-h-0 flex-1 flex-col py-4' : 'py-8',
+          width,
+        )}
+      >
         {/* ── Navegación superior ──────────────────────────────── */}
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-3',
+            fill ? 'mb-3' : 'mb-8',
+          )}
+        >
           <div className="flex flex-wrap items-center gap-1">
             <Link
               to="/"
@@ -99,17 +126,35 @@ export function AdminShell({
         </div>
 
         {/* ── Encabezado ───────────────────────────────────────── */}
-        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <header
+          className={cn(
+            'flex flex-wrap items-end justify-between gap-4',
+            fill ? 'mb-3' : 'mb-8',
+          )}
+        >
           <div>
-            <VaultTitle>{title}</VaultTitle>
+            <VaultTitle className={fill ? 'text-2xl' : undefined}>
+              {title}
+            </VaultTitle>
             {subtitle && (
-              <p className="mt-2 text-sm text-white/45">{subtitle}</p>
+              <p
+                className={cn(
+                  'text-sm text-white/45',
+                  fill ? 'mt-0.5 text-xs' : 'mt-2',
+                )}
+              >
+                {subtitle}
+              </p>
             )}
           </div>
           {actions}
         </header>
 
-        {children}
+        {fill ? (
+          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        ) : (
+          children
+        )}
       </div>
     </div>
   );
