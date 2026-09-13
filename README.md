@@ -96,6 +96,7 @@ siguen funcionando y los eventos esperan en la outbox. Ver
 | **shift-service** | Jornada laboral: estados de turno, línea de tiempo y horas. **Proyección de los eventos del Access Service**; no decide nada que abra una puerta. | schema `shift_svc` |
 | **vision-service** | Convierte píxeles en vectores. No conoce identidades ni toca la base de datos. | ninguna |
 | **voice-service** | Convierte audio en texto estructurado para la bitácora de relevo. **Devuelve borradores, no registros**; no conoce identidades ni toca la base de datos. | ninguna |
+| **logbook-service** | Dueño de la bitácora de relevo: partes ya **firmados**. Sin edición ni borrado; una corrección es un parte nuevo. | schema `logbook_svc` |
 
 ### Por qué las identidades están separadas así
 
@@ -1040,7 +1041,36 @@ a memoria y los eventos esperan en la outbox hasta que vuelva.
 ## La bitácora de relevo de turno
 
 Un vigilante dicta las novedades al terminar su jornada y el sistema las
-ordena en incidencias. El `voice-service` transcribe con Deepgram y
+ordena en incidencias.
+
+Es un camino aparte del de reconocimiento —el del diagrama de arriba— y
+no toca ninguna puerta:
+
+```
+  persona identificada por su cara
+        │  audio (multipart)
+        ▼
+  ┌──────────────┐   POST /me/logbook/draft   ┌────────────────────┐
+  │ API GATEWAY  │ ─────────────────────────► │   VOICE SERVICE    │
+  │ guard /me    │                            │  Python · SIN BD   │
+  └──────┬───────┘ ◄───── BORRADOR ────────── │  Deepgram → Gemini │
+         │                                    └────────────────────┘
+         │   la persona REVISA y FIRMA
+         │   POST /me/logbook
+         ▼
+  ┌────────────────────┐   ¿qué registraron   ┌────────────────────┐
+  │  LOGBOOK SERVICE   │ ── las puertas? ───► │   ACCESS SERVICE   │
+  │  NestJS + Prisma   │                      │  (solo lectura)    │
+  │  partes FIRMADOS   │ ◄─── resumen ─────── └────────────────────┘
+  │  inmutables        │      CONGELADO dentro del parte
+  └────────────────────┘
+```
+
+Si el Voice Service no responde, el parte se escribe a mano. Si el
+Access Service no responde, se firma sin el cruce. **Ninguno de los dos
+puede impedir que quede constancia de un turno**, y ninguno de los dos
+aparece en el `depends_on` del Gateway: el sistema abre puertas aunque
+dictar un parte no funcione. El `voice-service` transcribe con Deepgram y
 estructura con Gemini, y es **sin estado**: no guarda nada, no conoce
 identidades y no decide nada.
 
@@ -1091,6 +1121,38 @@ del sistema» **deja de ser cierta** con la Fase 5 encendida, y está
 dicho aquí para que nadie lo descubra leyendo el código.
 
 Ver [ADR 0011](docs/adr/0011-voz-e-ia.md).
+
+### Dónde se guarda, y por qué no en el servicio de turnos
+
+En un `logbook-service` con su propio schema y su propio rol. El motivo
+no es de gusto: el Shift Service es una **proyección** y podría
+reconstruirse entero reprocesando los eventos sin que nadie se quedara
+fuera del edificio. **Un parte que dictó una persona no se reconstruye de
+ningún evento**, y guardarlo ahí destruiría la propiedad que hace
+defendible aquel diseño.
+
+### Lo que hace que un parte valga como registro
+
+- **Solo entra lo firmado.** No hay borradores en la base de datos. El
+  borrador vive en el cliente entre dictarlo y firmarlo.
+- **Es inmutable.** No hay editar ni borrar, en ningún sitio. Una
+  corrección es un parte nuevo que apunta al anterior, y los dos quedan.
+- **Firma quien vivió el turno.** La persona sale del token de sesión
+  facial, nunca del cuerpo de la petición, y la vista de administración
+  es de **solo lectura**: un administrador que pudiera redactar el parte
+  de otro convertiría la bitácora en algo que no prueba nada.
+- **El cruce con las puertas se congela al firmar.** Un parte es
+  evidencia de lo que se sabía entonces; si se compusiera al leerlo,
+  diría cosas distintas según el día.
+
+### Lo que necesita quien entra al turno
+
+`GET /me/logbook/pending` devuelve lo que quedó sin cerrar. Es la
+consulta que justifica tener una bitácora: sin ella habría que repasar el
+turno anterior entero para enterarse de que el ascensor sigue roto. No
+filtra por persona a propósito, porque lo pendiente lo dejó otro.
+
+Ver [ADR 0012](docs/adr/0012-bitacora-de-relevo.md).
 
 ---
 
@@ -1395,3 +1457,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0009 | Observabilidad con OpenTelemetry, y la traza cruza el bus |
 | 0010 | Detección de vida pasiva, y por qué no deniega por defecto |
 | 0011 | Voz e IA: el modelo propone, la persona firma |
+| 0012 | La bitácora: firmada, inmutable y con el cruce congelado |

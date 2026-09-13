@@ -8,6 +8,7 @@ import { FaceClient } from './face/face.client';
 import { HealthController } from './health/health.controller';
 import { AccessLogsController } from './logs/access-logs.controller';
 import { AccessLogsService } from './logs/access-logs.service';
+import { WindowSummaryService } from './logs/window-summary.service';
 import { OutboxRelay } from './outbox/outbox.relay';
 import { PolicyController } from './policy/policy.controller';
 import { PolicyRepository } from './policy/policy.repository';
@@ -78,6 +79,7 @@ import { DomainMetrics } from './telemetry/domain.metrics';
     StatsRepository,
     OutboxRelay,
     AccessLogsService,
+    WindowSummaryService,
     FaceClient,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],

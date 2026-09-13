@@ -498,23 +498,52 @@ en el HOST; el `docker-compose.yml` lleva una línea `dns:` comentada
 para parchearlo solo en este servicio. Es el único servicio del sistema
 que necesita salir a Internet.
 
+### El `logbook-service` también está · HECHO
+
+Dueño de la bitácora, con schema y rol propios (`logbook_svc`). Ver
+[ADR 0012](adr/0012-bitacora-de-relevo.md).
+
+**Verificado contra el stack real**, firmando un parte por el Gateway
+con un token de sesión: el nombre de la sede lo trae del Access Service
+(no del cuerpo), el día se imputa en hora local de Bogotá, y el cruce de
+accesos quedó congelado dentro —266 intentos, 9 concedidos, 257
+denegados, con `BELOW_THRESHOLD` 252 y `LIVENESS_FAILED` 1—.
+
+**Las siete decisiones que no hay que deshacer:**
+
+1. **Aquí solo entra lo FIRMADO.** No hay borradores en la base de
+   datos. El borrador vive en el cliente entre dictarlo y firmarlo.
+2. **Inmutable.** No hay `PUT`, ni `PATCH`, ni `DELETE`, ni en el
+   servicio ni en el Gateway. Una corrección es un parte nuevo que
+   apunta al anterior con `correctsEntryId`, y los dos quedan.
+3. **Firma quien vivió el turno.** `personId` sale del token y viaja en
+   cabecera; el esquema de entrada **no tiene** campo para la persona, y
+   hay un test que lo fija. La vista de administración es de **solo
+   lectura**.
+4. **El cruce de accesos se congela al firmar.** No se compone al leer:
+   un parte es evidencia de lo que se sabía entonces.
+5. **Sin Access Service se firma igual** (probado parando el
+   contenedor): `accessSnapshot` y `siteName` a nulo, día calculado en
+   UTC, y aviso en el log. Por eso el `depends_on` es `service_started`.
+6. **Cada incidencia dice de dónde salió** —aceptada, editada o añadida
+   a mano—. Es lo que permitirá responder con datos si el modelo sirve
+   de algo.
+7. **La hora se guarda tal y como se dijo** («las tres y cuarto»), sin
+   normalizar.
+
+16 tests de lógica pura, verificados con cinco mutaciones que cada una
+tumba exactamente un caso.
+
 **LO QUE FALTA DE LA FASE 5:**
 
-- **`logbook-service`**, dueño de la bitácora, con schema `logbook_svc`
-  propio. **La decisión ya está tomada y razonada en el ADR 0011**: no
-  va en `shift_svc` porque ese servicio es una *proyección*
-  reconstruible del stream (ADR 0007) y un texto dictado por una persona
-  no se reconstruye de ningún evento; ni en `access_svc`, que es la
-  autoridad de las puertas. Al cerrar una entrada, los accesos de esa
-  franja se **congelan dentro** del registro, como ya hace el evento de
-  la outbox: un parte es evidencia de lo que se sabía entonces.
-- **Quién dicta**: el vigilante identificado por la cara, vía
-  `POST /me/logbook` con el token de sesión facial, igual que `/home`.
 - **Servidor MCP** (`quien_esta_dentro`, `horas_trabajadas`,
   `novedades_de_turno`): cliente del Gateway con token de
   administración, **nunca** de la base de datos ni de los servicios
   internos, y **solo lectura**. Se expone por stdio, fuera del compose.
-- Interfaz para dictar y revisar el borrador antes de firmarlo.
+- **Interfaz** para dictar, revisar el borrador y firmarlo, más la vista
+  de lo pendiente al entrar al turno. Los endpoints ya están:
+  `POST /me/logbook/draft`, `POST /me/logbook`, `GET /me/logbook`,
+  `GET /me/logbook/pending` y `GET /admin/logbook`.
 
 ### LA DETECCION DE VIDA NO FUNCIONA — medido con datos reales
 

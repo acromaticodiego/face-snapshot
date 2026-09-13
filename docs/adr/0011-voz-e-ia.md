@@ -159,10 +159,11 @@ lo que devuelven casi todas estas APIs y no sirve aquí: mide cuán seguro
 está el modelo, no si lo que dijo estaba en el texto. Un modelo puede
 estar muy seguro de algo que se inventó.
 
-## Lo que viene, y ya está decidido
+## Lo que se decidió aquí y ya está construido
 
-**La bitácora vivirá en un `logbook-service` propio**, con su schema
-`logbook_svc`, y no en `shift_svc`. El motivo no es de gusto: el
+**La bitácora vive en un `logbook-service` propio**, con su schema
+`logbook_svc`, y no en `shift_svc`. Las decisiones de ese servicio están
+en el [ADR 0012](0012-bitacora-de-relevo.md). El motivo no es de gusto: el
 [ADR 0007](0007-eventos-y-presencia.md) define el Shift Service como una
 **proyección**, reconstruible entera reprocesando el stream de eventos
 sin que nadie se quede fuera de un edificio. Un texto que dictó una
@@ -173,7 +174,7 @@ Fase 2.
 Tampoco en `access_svc`: es la autoridad de las puertas y no se le añaden
 escrituras que no abren nada.
 
-El **servidor MCP** será cliente del Gateway con un token de
+Sigue pendiente el **servidor MCP**, que será cliente del Gateway con un token de
 administración, nunca de la base de datos ni de los servicios internos,
 para que pase por los mismos guards que todo lo demás en lugar de abrir
 una segunda puerta de entrada. **Solo herramientas de lectura**: ninguna

@@ -4,7 +4,7 @@
  * TIENE QUE IMPORTARSE EL PRIMERO, ANTES QUE NADA
  * ───────────────────────────────────────────────
  * Las instrumentaciones funcionan parcheando modulos (`http`, `express`,
- * `pg`, `ioredis`) en el momento en que se cargan. Si este archivo se
+ * `pg`) en el momento en que se cargan. Si este archivo se
  * importa despues de que Nest haya cargado express, el parche llega
  * tarde y no se instrumenta nada: no falla, simplemente no aparece
  * ninguna traza, que es la forma mas dificil de depurar esto. Por eso
@@ -44,7 +44,6 @@ import {
   ExpressLayerType,
 } from '@opentelemetry/instrumentation-express';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { IORedisInstrumentation } from '@opentelemetry/instrumentation-ioredis';
 import { NestInstrumentation } from '@opentelemetry/instrumentation-nestjs-core';
 import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -127,7 +126,6 @@ function iniciar(): void {
       // "VerificationController.verifyFrame tardo 300 ms".
       new NestInstrumentation(),
       new PgInstrumentation(),
-      new IORedisInstrumentation(),
     ],
   });
 

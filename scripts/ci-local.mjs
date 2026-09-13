@@ -25,6 +25,7 @@ const NODE_SERVICES = [
   'services/face-service',
   'services/access-service',
   'services/shift-service',
+  'services/logbook-service',
 ];
 
 let failures = 0;

@@ -1,0 +1,221 @@
+// ═══════════════════════════════════════════════════════════════════
+//  Logbook Service — modelo de datos
+//
+//  Dueño de la bitácora de relevo de turno: lo que una persona declara
+//  que pasó durante su jornada.
+//
+//  ESTO NO ES UNA PROYECCION, Y POR ESO VIVE APARTE
+//  ───────────────────────────────────────────────
+//  El Shift Service es una proyección: todo lo suyo se deriva de los
+//  eventos del Access Service, y podría reconstruirse entero
+//  reprocesando el stream sin que nadie se quedara fuera de un
+//  edificio (ADR 0007).
+//
+//  Un parte de relevo NO se deriva de ningún evento. Lo dictó una
+//  persona, y si se pierde no hay forma de volver a generarlo.
+//  Guardarlo en `shift_svc` destruiría la propiedad que hace
+//  defendible aquel diseño, así que tiene schema y rol propios.
+//
+//  LO QUE SE GUARDA AQUI YA ESTA FIRMADO
+//  ────────────────────────────────────
+//  No hay borradores en esta base de datos. El Voice Service produce
+//  una propuesta, la persona la revisa, y solo lo que confirma llega
+//  hasta aquí. Un registro de seguridad a medio hacer, que nadie ha
+//  leído y que parece un parte, es peor que no tener parte.
+//
+//  Sin claves foráneas hacia personas o sedes: pertenecen a otros
+//  servicios y a otros schemas. Los nombres van desnormalizados, igual
+//  que en la auditoría de accesos y en la jornada.
+// ═══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["logbook_svc"]
+}
+
+/// Cómo se redactó el parte.
+///
+/// Se guarda porque cambia lo que significa el texto: uno dictado pasó
+/// por un reconocedor de voz y puede tener errores de transcripción;
+/// uno escrito, no.
+enum HandoverSource {
+  /// Dictado y transcrito automáticamente.
+  DICTADO
+
+  /// Escrito a mano, con el teclado. Es la salida cuando la
+  /// transcripción no está disponible, y tiene que existir: un
+  /// vigilante no puede terminar su turno sin dejar constancia porque
+  /// un proveedor externo esté caído.
+  ESCRITO
+
+  @@schema("logbook_svc")
+}
+
+/// De dónde salió una incidencia concreta.
+///
+/// NO es decoración: es lo que permite responder, con datos y dentro de
+/// unos meses, si el modelo sirve de algo. Si casi todo acaba siendo
+/// PROPUESTA_EDITADA o ANADIDA_POR_PERSONA, la estructuración
+/// automática está costando más trabajo del que ahorra.
+enum IncidentOrigin {
+  /// La propuso el modelo y la persona la aceptó tal cual.
+  PROPUESTA_ACEPTADA
+
+  /// La propuso el modelo y la persona la corrigió antes de firmar.
+  PROPUESTA_EDITADA
+
+  /// El modelo no la vio; la escribió la persona.
+  ANADIDA_POR_PERSONA
+
+  @@schema("logbook_svc")
+}
+
+enum IncidentCategory {
+  ACCESO
+  ALARMA
+  MANTENIMIENTO
+  SEGURIDAD
+  OTRO
+
+  @@schema("logbook_svc")
+}
+
+enum IncidentSeverity {
+  BAJA
+  MEDIA
+  ALTA
+
+  @@schema("logbook_svc")
+}
+
+/// Un parte de relevo firmado.
+///
+/// INMUTABLE. No hay endpoint que lo modifique ni que lo borre, y es
+/// deliberado: es el testimonio de alguien sobre un turno, con fecha y
+/// firma. Un parte que se puede editar después no vale como registro,
+/// porque nadie puede saber si lo que lee es lo que se dijo.
+///
+/// Una corrección es un parte NUEVO que apunta al anterior con
+/// `correctsEntryId`, y los dos quedan. Es como se corrige un libro de
+/// registro en papel: tachando y firmando al lado, no arrancando la
+/// hoja.
+model HandoverEntry {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Quién firma. Sale del token de sesión facial, no del cuerpo de la
+  /// petición: quien dicta un parte es quien está identificado.
+  personId   String @map("person_id") @db.Uuid
+  personName String @map("person_name") @db.VarChar(120)
+
+  siteId   String  @map("site_id") @db.Uuid
+  siteName String? @map("site_name") @db.VarChar(120)
+
+  /// Día al que se imputa el parte, en hora LOCAL de la sede.
+  ///
+  /// Misma convención que la jornada en `shift_svc`: un turno de noche
+  /// que empieza el lunes a las 22:00 es el parte del LUNES. Si aquí se
+  /// usara otra, cruzar un parte con su jornada daría días distintos.
+  businessDate DateTime @map("business_date") @db.Date
+
+  /// Periodo que el parte declara cubrir.
+  ///
+  /// Lo declara quien firma, no lo deduce el servidor. Un parte es un
+  /// testimonio sobre un intervalo, y quién mejor que su autor para
+  /// decir cuál es. Se valida que sea coherente -no del futuro, no más
+  /// largo que un día-, no que sea "el turno correcto".
+  coversFrom DateTime @map("covers_from") @db.Timestamptz(6)
+  coversTo   DateTime @map("covers_to") @db.Timestamptz(6)
+
+  source HandoverSource
+
+  /// Transcripción literal de lo que se dictó. Nula si se escribió.
+  ///
+  /// Se guarda ADEMAS del resumen y de las incidencias, y no en vez de
+  /// ellos: la estructura es una interpretación y el texto es lo que
+  /// se dijo. Cuando dentro de seis meses alguien discuta una
+  /// incidencia, lo que zanja la discusión es el texto.
+  transcript String? @db.Text
+
+  /// Resumen del turno, ya revisado por la persona.
+  summary String @db.Text
+
+  /// Qué modelos intervinieron, si intervino alguno.
+  ///
+  /// Es procedencia, no telemetría. Si dentro de un año se descubre que
+  /// una versión concreta de un modelo agrupaba mal, hay que poder
+  /// encontrar qué partes pasaron por ella.
+  transcriptionModel String? @map("transcription_model") @db.VarChar(60)
+  structuringModel   String? @map("structuring_model") @db.VarChar(60)
+
+  /// Lo que decían los registros de acceso de esa franja, CONGELADO.
+  ///
+  /// Se calcula al firmar y se guarda dentro. No se consulta al leer, y
+  /// esa es la decisión: un parte es evidencia de lo que se sabía
+  /// entonces. Si se compusiera al leerlo, el mismo documento diría
+  /// cosas distintas según el día en que se abre, que es exactamente lo
+  /// que un registro no puede hacer.
+  ///
+  /// Nulo cuando el Access Service no respondió al firmar. Se prefiere
+  /// un parte sin cruce a no tener parte.
+  accessSnapshot Json? @map("access_snapshot")
+
+  /// Parte al que este corrige. Nulo en el caso normal.
+  correctsEntryId String? @map("corrects_entry_id") @db.Uuid
+
+  signedAt  DateTime @default(now()) @map("signed_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  incidents Incident[]
+
+  @@index([personId, businessDate])
+  @@index([siteId, businessDate])
+  @@index([coversFrom])
+  @@map("handover_entries")
+  @@schema("logbook_svc")
+}
+
+/// Una novedad concreta dentro de un parte.
+model Incident {
+  id      String @id @default(uuid()) @db.Uuid
+  entryId String @map("entry_id") @db.Uuid
+
+  title    String           @db.VarChar(160)
+  category IncidentCategory
+  severity IncidentSeverity
+
+  /// La hora TAL Y COMO SE DIJO ("las tres y cuarto").
+  ///
+  /// No se normaliza a un instante a propósito. Convertir "sobre las
+  /// tres" en 03:00:00 inventa una precisión que nadie declaró, y en un
+  /// parte de turno esa precisión falsa acaba citada en una
+  /// investigación como si fuera un dato.
+  mentionedTime String? @map("mentioned_time") @db.VarChar(60)
+
+  requiresFollowUp Boolean @default(false) @map("requires_follow_up")
+
+  origin IncidentOrigin
+
+  /// Fragmento de la transcripción que respalda esta incidencia.
+  quote String? @db.Text
+
+  /// Si esa cita aparecía de verdad en la transcripción.
+  ///
+  /// Lo comprobó el Voice Service comparando contra el texto; no lo
+  /// dijo el modelo. Se guarda porque una incidencia firmada que el
+  /// modelo no pudo respaldar es justo la que hay que poder encontrar
+  /// después.
+  quoteVerified Boolean @default(false) @map("quote_verified")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  entry HandoverEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([requiresFollowUp])
+  @@map("incidents")
+  @@schema("logbook_svc")
+}
