@@ -11,6 +11,7 @@ import { ShiftReconciler } from './shifts/shift.reconciler';
 import { ShiftsController } from './shifts/shifts.controller';
 import { ShiftsQuery } from './shifts/shifts.query';
 import { ShiftsService } from './shifts/shifts.service';
+import { ConsumerMetrics } from './telemetry/consumer.metrics';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { ShiftsService } from './shifts/shifts.service';
     ShiftsQuery,
     ShiftReconciler,
     AccessEventsConsumer,
+    ConsumerMetrics,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })

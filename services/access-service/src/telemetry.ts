@@ -34,7 +34,10 @@ import { join } from 'node:path';
 import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
+import {
+  ExpressInstrumentation,
+  ExpressLayerType,
+} from '@opentelemetry/instrumentation-express';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { IORedisInstrumentation } from '@opentelemetry/instrumentation-ioredis';
 import { NestInstrumentation } from '@opentelemetry/instrumentation-nestjs-core';
@@ -106,7 +109,14 @@ function iniciar(): void {
         ignoreIncomingRequestHook: (peticion) =>
           RUTAS_SIN_TRAZA.some((ruta) => peticion.url?.startsWith(ruta) ?? false),
       }),
-      new ExpressInstrumentation(),
+      new ExpressInstrumentation({
+        // Sin esto, cada peticion arrastra cinco spans de cero
+        // milisegundos —cors, helmet, el parser de JSON, el de
+        // urlencoded— que no describen ninguna operacion y solo
+        // estorban al leer la traza. Lo que interesa de Express es el
+        // manejador de la ruta, y ese se conserva.
+        ignoreLayersType: [ExpressLayerType.MIDDLEWARE],
+      }),
       // Pone el nombre del controlador y del metodo en el span, que es
       // la diferencia entre "algo tardo 300 ms en el Access Service" y
       // "VerificationController.verifyFrame tardo 300 ms".

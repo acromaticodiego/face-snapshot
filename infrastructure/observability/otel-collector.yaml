@@ -41,6 +41,27 @@ processors:
     timeout: 5s
     send_batch_size: 512
 
+  # Solo las fronteras del sistema alimentan las metricas RED.
+  #
+  # Sin este filtro, el conector fabrica una serie por CADA span, y eso
+  # incluye un span por cada middleware de Express —cors, helmet, el
+  # parser de JSON— y uno por cada conexion al pool de PostgreSQL. Son
+  # spans de cero milisegundos que no describen ninguna operacion, y
+  # multiplican por diez las series de Prometheus para no decir nada.
+  # La cardinalidad no avisa antes de convertirse en un problema: un
+  # dia la consulta del panel tarda treinta segundos y hay que
+  # averiguar por que.
+  #
+  # SERVER es "me han pedido algo" y CONSUMER es "he procesado un
+  # mensaje": entre los dos cubren todas las entradas de trabajo del
+  # sistema. Los CLIENT se descartan porque duplican al SERVER del
+  # servicio que hay al otro lado, ya medido alli.
+  filter/spanmetrics:
+    error_mode: ignore
+    traces:
+      span:
+        - 'kind.string != "Server" and kind.string != "Consumer"'
+
   # Tope duro de memoria. Un colector que se come la RAM de la maquina
   # se lleva por delante a los servicios que observa, que es
   # exactamente lo contrario de su trabajo.
@@ -115,11 +136,20 @@ service:
                 port: 8888
 
   pipelines:
+    # A Tempo va TODO: al investigar un caso concreto se quiere ver el
+    # recorrido completo, middlewares incluidos.
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      # Las trazas van a Tempo Y alimentan las metricas derivadas.
-      exporters: [otlp_grpc/tempo, span_metrics]
+      exporters: [otlp_grpc/tempo]
+
+    # A las metricas, solo las fronteras. Es la misma entrada de datos
+    # con un filtro distinto: un receptor alimenta a todas las tuberias
+    # que lo declaran.
+    traces/spanmetrics:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/spanmetrics, batch]
+      exporters: [span_metrics]
 
     metrics:
       # Dos fuentes: lo que los servicios miden por su cuenta (las
