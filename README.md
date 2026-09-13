@@ -1172,11 +1172,54 @@ node scripts/ci-local.mjs        # reproduce el CI completo en local
 node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
 ```
 
-124 pruebas unitarias, todas sobre piezas que **deciden** algo o que
-**afirman** algo:
+### Qué se prueba, y por qué eso
 
-| Qué | Dónde | Pruebas |
-|---|---|---|
+| Pieza | Casos |
+|---|---|
+| Perímetro: guards del Gateway | 26 |
+| Perímetro: login de administración | 17 |
+| Política de acceso, votación, anti-passback, umbral, outbox, evento | 94 |
+| Máquina de turnos y parser del bus | 44 |
+
+Las dos primeras filas son nuevas y tapan una asimetría que el proyecto
+arrastraba: se probaba a fondo la **lógica de dominio** y no se probaba
+en absoluto el **perímetro de seguridad**, que en un producto de control
+de acceso está del revés.
+
+Lo que cubren no es «el guard funciona», sino dos garantías concretas:
+
+- **Un token de sesión facial no sirve para administrar, y uno de
+  administración no sirve para `/me`.** La exclusión va en los dos
+  sentidos y cada uno tiene su motivo (ADR 0006 y el propio guard de
+  sesión). Los tokens de estas pruebas se firman con un `JwtService`
+  real: un doble que devolviera un objeto probaría que el guard sabe
+  leer un objeto, no que rechaza una firma mala o una caducidad pasada.
+- **No se puede enumerar quién es administrador**, ni por el mensaje
+  —idéntico siempre— ni por el **tiempo**. Lo segundo es lo frágil: el
+  servicio verifica contra un hash de descarte aunque la cuenta no
+  exista, y un retorno temprano para correos desconocidos rompería esa
+  defensa sin cambiar ni un mensaje.
+
+> **Estos tests se comprobaron rompiendo el código a propósito.** Al
+> retirar `payload.typ !== 'admin'` del guard, fallan dos casos. Al
+> meter un retorno temprano para correos desconocidos —dejando el
+> mensaje de error exactamente igual— falla **uno solo**: justo el que
+> vigila la igualación de tiempos. Un test que pasa no demuestra nada
+> hasta que se ve fallar por el motivo que dice cubrir.
+
+Ambos servicios exigen **100 % de cobertura** sobre esos archivos en su
+`jest.config.js`, y hoy la cumplen en sentencias, ramas, funciones y
+líneas.
+
+### Lo que sigue sin tests
+
+El **frontend**, que no tiene ni infraestructura montada, y ya son tres
+pantallas con lógica de presentación real. Y el pipeline de
+reconocimiento y el enrolamiento, que necesitan imágenes y modelos: la
+prueba de humo los cubre de extremo a extremo, pero no como test
+unitario.
+
+---|---|---|
 | Política de acceso (rol · zona · horario) | `access-service/src/policy` | 31 |
 | Anti-passback | `access-service/src/presence` | 19 |
 | Votación multi-frame | `access-service/src/verification` | 12 |

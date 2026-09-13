@@ -213,7 +213,8 @@ node scripts/apply-shift-schema.mjs   # crea shift_svc en una BD ya existente
 
 CI en GitHub Actions: tipos, compilación y tests de los 5 servicios
 Node, sintaxis del vision-service, y verificación de que no hay `.env`
-versionado.
+versionado. El paso de tests se salta solo en los servicios que no
+declaran un script `test`, así que añadir uno basta para que entre.
 
 Para comprobar la observabilidad hace falta el stack levantado y algo de
 tráfico. La prueba de humo sirve de generador: cada pasada produce una
@@ -240,19 +241,33 @@ fallos**:
 
 1. **Sin anti-spoofing.** Una foto en un móvil pasaría la
    autenticación. El sistema no es apto para producción real.
-2. **Cobertura de tests desigual.** Hay 132 tests sobre las piezas que
-   deciden o afirman algo: política de acceso (31), votación (12),
-   anti-passback (19), análisis del umbral (13), contrato del evento
-   (9), relay de la outbox (8), máquina de turnos (33) y parser del
-   evento (7). Todas son funciones puras o con dobles, así que corren
-   en segundos y sin contenedores.
+2. **Cobertura de tests desigual, pero ya no en el perímetro.** Hay
+   **181 casos** repartidos así:
 
-   **El frontend no tiene ninguna prueba.** Es la brecha más visible
-   ahora que hay dos pantallas con lógica de presentación real.
+   | Servicio | Casos | Qué cubre |
+   |---|---|---|
+   | `access-service` | 94 | Política, votación, anti-passback, umbral, outbox, contrato del evento |
+   | `shift-service` | 44 | Máquina de turnos, parser del bus, contexto de traza |
+   | `api-gateway` | 26 | Los dos guards: la exclusión entre administrar y estar reconocido |
+   | `auth-service` | 17 | Login, bloqueo por intentos, igualación de tiempos |
 
-   Lo que **sigue sin tests** es el pipeline de reconocimiento y el
-   enrolamiento, que necesitan imágenes y modelos reales. La prueba de
-   humo los cubre de extremo a extremo, pero no como test unitario.
+   Todas son funciones puras o con dobles, así que corren en segundos y
+   sin contenedores.
+
+   **El frontend sigue sin ninguna prueba**, y ni siquiera tiene la
+   infraestructura montada (no hay vitest ni testing-library). Es la
+   brecha más visible ahora que hay tres pantallas con lógica de
+   presentación real.
+
+   `face-service` tampoco tiene tests propios. Su garantía crítica —que
+   los embeddings no salgan del backend— la impone el tipo
+   `Unsupported` de Prisma, no la disciplina, así que la ausencia pesa
+   menos de lo que parece.
+
+   Lo que **sigue sin tests unitarios** es el pipeline de reconocimiento
+   y el enrolamiento, que necesitan imágenes y modelos reales. La prueba
+   de humo los cubre de extremo a extremo.
+
 3. **Sin revocación de tokens.** Uno robado vale hasta caducar (8 h).
 4. ~~Estado de votación en memoria~~ **resuelto**: las ventanas se
    comparten en Redis. Lo que no escala ahora es el consumidor del
