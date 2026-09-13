@@ -158,6 +158,21 @@ step(
   join(process.cwd(), 'services', 'vision-service'),
 );
 
+// ── 6. Voice Service ──────────────────────────────────────────────
+//
+// Aqui SI se ejecutan las pruebas, a diferencia del Vision Service.
+// La razon es que se pueden: `app/services/citas.py` no depende de
+// nada fuera de la biblioteca estandar, asi que corren sin instalar
+// fastapi, ni httpx, ni pytest. Comprueban la unica garantia de este
+// servicio que no depende de un tercero: que una incidencia cuya cita
+// no esta en la transcripcion queda MARCADA.
+section('6. services/voice-service');
+{
+  const cwd = join(process.cwd(), 'services', 'voice-service');
+  step('Sintaxis de Python', 'python -m compileall -q app tests', cwd);
+  step('Tests', 'python -m unittest discover -s tests -q', cwd);
+}
+
 // ── Resumen ───────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(52)}`);
 if (failures === 0) {

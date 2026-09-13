@@ -128,6 +128,62 @@ services:
       - '8000'
     networks: [detector-net]
 
+  # ── Voz: transcripcion y estructuracion (Fase 5) ────────────────
+  #
+  # Simetrico al Vision Service: sin estado, sin base de datos, y no
+  # conoce identidades. Convierte audio en texto ordenado y nada mas.
+  #
+  # NADIE DEPENDE DE EL y el no depende de ningun servicio propio: si
+  # se cae, las puertas siguen abriendo y las jornadas siguen
+  # contandose. Lo unico que deja de funcionar es dictar un parte de
+  # relevo, y para eso queda escribirlo a mano.
+  voice-service:
+    build:
+      context: ./services/voice-service
+      dockerfile: Dockerfile
+    container_name: detector-voice
+    restart: unless-stopped
+    environment:
+      # Sin estas claves el servicio ARRANCA igual y lo avisa en el
+      # log. Es deliberado: que falte una credencial de un tercero no
+      # puede impedir levantar el sistema.
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Medido sobre 37.7 s de audio en espanol: nova-3 tardo 1955 ms y
+      # nova-2 8308 ms para una transcripcion identica palabra por
+      # palabra. No lo bajes sin volver a medir.
+      DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-nova-3}
+      DEEPGRAM_LANGUAGE: ${DEEPGRAM_LANGUAGE:-es}
+      # Version CONCRETA, nunca un alias tipo `gemini-flash-latest`: un
+      # alias cambia de modelo por debajo sin que nadie toque nada, y
+      # con el cambiarian las incidencias que el sistema saca del mismo
+      # parte.
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      MAX_AUDIO_SIZE_MB: ${MAX_AUDIO_SIZE_MB:-25}
+      VOICE_SERVICE_PORT: '8001'
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # ── Observabilidad ──────────────────────────────────────────
+      # Sin OTEL_EXPORTER_OTLP_ENDPOINT el servicio arranca sin
+      # instrumentacion. Es el interruptor: el colector NO es una
+      # dependencia, y por eso tampoco aparece en `depends_on`.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT-http://otel-collector:4318}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      OTEL_DEPLOYMENT_ENVIRONMENT: ${OTEL_DEPLOYMENT_ENVIRONMENT:-local}
+    # Este es el UNICO servicio del sistema que necesita salir a
+    # Internet, y por eso es el unico al que le puede afectar el DNS de
+    # la red local. Si `api.deepgram.com` no resuelve dentro del
+    # contenedor -pasa con algunos routers domesticos, que devuelven
+    # respuesta vacia para ese nombre-, el arreglo correcto es poner un
+    # DNS que funcione en el HOST. Descomentar esto lo parchea solo
+    # aqui, y conviene saber que se esta parcheando:
+    # dns: [1.1.1.1, 8.8.8.8]
+    # Sin `ports`: servicio interno, igual que el Vision Service.
+    expose:
+      - '8001'
+    networks: [detector-net]
+
   # ── Identidades y vectores faciales ─────────────────────────────
   face-service:
     build:

@@ -1,0 +1,33 @@
+# ── API ───────────────────────────────────────────────────────────
+#
+# Mismas versiones que el Vision Service a proposito: los dos son
+# servicios FastAPI de este proyecto, y que se muevan a la vez evita
+# depurar una diferencia de comportamiento entre dos versiones de
+# pydantic dentro del mismo sistema.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+pydantic-settings==2.13.0
+python-multipart==0.0.20
+
+# ── Proveedores externos ──────────────────────────────────────────
+#
+# httpx y no requests: los manejadores de este servicio son `async` y
+# pasan casi todo su tiempo esperando a Deepgram y a Gemini. Con un
+# cliente sincrono, cada espera bloquearia el bucle de eventos y el
+# proceso atenderia las peticiones de una en una, que es justo lo
+# contrario de lo que conviene cuando el trabajo lo hace otro.
+#
+# No se usan los SDK oficiales de ninguno de los dos: las dos llamadas
+# son un POST cada una, y un SDK traeria su propio arbol de
+# dependencias y su propio ritmo de cambios a cambio de ahorrar unas
+# lineas.
+httpx==0.28.1
+
+# ── Observabilidad ────────────────────────────────────────────────
+structlog==25.5.0
+
+opentelemetry-api==1.44.0
+opentelemetry-sdk==1.44.0
+opentelemetry-exporter-otlp-proto-http==1.44.0
+opentelemetry-instrumentation-fastapi==0.65b0

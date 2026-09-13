@@ -119,6 +119,32 @@ jobs:
         working-directory: services/vision-service
         run: python -m compileall -q app scripts
 
+  voice:
+    name: Voice Service
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Comprobar sintaxis
+        working-directory: services/voice-service
+        run: python -m compileall -q app tests
+
+      # Estas pruebas SI se ejecutan, al contrario que las del Vision
+      # Service, y es que se puede: `app/services/citas.py` solo usa la
+      # biblioteca estandar, asi que corren sin instalar ni una
+      # dependencia. Cubren la unica garantia de este servicio que no
+      # depende de un tercero: que una incidencia cuya cita no aparece
+      # en la transcripcion queda marcada en lugar de colarse como si
+      # fuera un hecho.
+      - name: Tests
+        working-directory: services/voice-service
+        run: python -m unittest discover -s tests -v
+
   secrets:
     name: Sin secretos en el repositorio
     runs-on: ubuntu-latest

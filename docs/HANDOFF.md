@@ -444,22 +444,77 @@ de tiempo.
 
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Fase 5, voz e IA.** Es lo único que queda del plan original.
+**1. Fase 5, voz e IA.** El `voice-service` ya está hecho y verificado;
+faltan el `logbook-service`, el servidor MCP y la interfaz. Detalle
+abajo.
 
 **2. Conseguir ataques reales y calibrar la detección de vida**, que es
 lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
 
-### Fase 5 — Voz e IA
-- `voice-service` (Python, sin estado, simétrico al vision-service):
-  audio → Deepgram → Gemini → estructura
-- Caso de uso real: **bitácora de relevo de turno**. Un vigilante dicta
-  las novedades, el sistema las estructura en incidencias y las cruza
-  con los registros de acceso de esa franja horaria
-- El audio se transcribe y **se descarta**, igual que las imágenes
-  faciales: coherencia con la política de privacidad existente
-- **Servidor MCP** que expone el dominio como herramientas
-  (`quien_esta_dentro`, `horas_trabajadas`, `novedades_de_turno`)
-- Las claves de Deepgram y Gemini están en el `.env` del usuario
+### Fase 5 — Voz e IA · EL `voice-service` YA ESTA
+
+**Hecho y verificado contra el stack real:** el `voice-service` (Python,
+sin estado, simétrico al vision-service). Audio → Deepgram → Gemini →
+estructura, con los dos proveedores reales. Ver
+[ADR 0011](adr/0011-voz-e-ia.md).
+
+Medido de extremo a extremo con 37.7 s de audio en español:
+
+    transcribir .....  1.4 - 3.6 s   (nova-3)
+    estructurar .....  1.8 - 6.0 s   (gemini-3.8-flash)
+    4 incidencias, las 4 con cita respaldada
+
+**Lo que hay que entender de este servicio**, porque condiciona lo que
+venga después:
+
+1. **Lo que devuelve es un BORRADOR, no un registro.** Nada se guarda
+   hasta que la persona que vivió el turno lo confirma. Un parte de
+   relevo no tiene regla mecánica que aplicar: es un testimonio, y es
+   el documento que se lee cuando algo ha salido mal.
+2. **La defensa contra la invención es una comprobación, no una
+   instrucción.** Al modelo se le exige una cita literal por incidencia
+   y el servicio comprueba que existe en la transcripción
+   (`app/services/citas.py`, 16 tests **que sí corren en el CI** porque
+   solo usan la biblioteca estándar). Una cita que no cuadra **se marca,
+   no se borra**. El recuento va a la traza como
+   `voice.incidents.unbacked`.
+3. **Rompe la promesa de privacidad del proyecto, y hay que decirlo.**
+   Es el único punto donde un dato biométrico sale del backend: la voz.
+   El audio no se guarda en ningún sitio y las trazas solo llevan
+   métricas, pero «ningún dato biométrico sale» deja de ser cierto.
+4. **Decisiones medidas, no copiadas de una documentación.** `nova-3`
+   frente a `nova-2`: 1955 ms contra 8308 ms por una transcripción
+   idéntica. Y `smart_format` **apagado**, porque convierte «las tres y
+   cuarto» en «las 3 y 4º» y en un parte de turno la hora es el dato por
+   el que alguien vuelve a leerlo.
+5. **Modelo con versión fija y temperatura cero.** Nada de
+   `gemini-flash-latest`: un alias cambia de modelo por debajo y con él
+   cambiarían las incidencias que salen del mismo parte.
+
+**Si api.deepgram.com no resuelve, no es el código.** Hay routers
+domésticos que devuelven respuesta vacía para ese nombre concreto
+mientras resuelven todo lo demás. Arréglalo poniendo un DNS que funcione
+en el HOST; el `docker-compose.yml` lleva una línea `dns:` comentada
+para parchearlo solo en este servicio. Es el único servicio del sistema
+que necesita salir a Internet.
+
+**LO QUE FALTA DE LA FASE 5:**
+
+- **`logbook-service`**, dueño de la bitácora, con schema `logbook_svc`
+  propio. **La decisión ya está tomada y razonada en el ADR 0011**: no
+  va en `shift_svc` porque ese servicio es una *proyección*
+  reconstruible del stream (ADR 0007) y un texto dictado por una persona
+  no se reconstruye de ningún evento; ni en `access_svc`, que es la
+  autoridad de las puertas. Al cerrar una entrada, los accesos de esa
+  franja se **congelan dentro** del registro, como ya hace el evento de
+  la outbox: un parte es evidencia de lo que se sabía entonces.
+- **Quién dicta**: el vigilante identificado por la cara, vía
+  `POST /me/logbook` con el token de sesión facial, igual que `/home`.
+- **Servidor MCP** (`quien_esta_dentro`, `horas_trabajadas`,
+  `novedades_de_turno`): cliente del Gateway con token de
+  administración, **nunca** de la base de datos ni de los servicios
+  internos, y **solo lectura**. Se expone por stdio, fuera del compose.
+- Interfaz para dictar y revisar el borrador antes de firmarlo.
 
 ### LA DETECCION DE VIDA NO FUNCIONA — medido con datos reales
 

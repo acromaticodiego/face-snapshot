@@ -95,6 +95,7 @@ siguen funcionando y los eventos esperan en la outbox. Ver
 | **access-service** | Decide si se concede el acceso. Votación multi-frame, política, anti-passback, presencia, auditoría, emisión de sesión. **Única autoridad sobre si una puerta se abre.** | schema `access_svc` |
 | **shift-service** | Jornada laboral: estados de turno, línea de tiempo y horas. **Proyección de los eventos del Access Service**; no decide nada que abra una puerta. | schema `shift_svc` |
 | **vision-service** | Convierte píxeles en vectores. No conoce identidades ni toca la base de datos. | ninguna |
+| **voice-service** | Convierte audio en texto estructurado para la bitácora de relevo. **Devuelve borradores, no registros**; no conoce identidades ni toca la base de datos. | ninguna |
 
 ### Por qué las identidades están separadas así
 
@@ -1036,6 +1037,63 @@ a memoria y los eventos esperan en la outbox hasta que vuelva.
 
 ---
 
+## La bitácora de relevo de turno
+
+Un vigilante dicta las novedades al terminar su jornada y el sistema las
+ordena en incidencias. El `voice-service` transcribe con Deepgram y
+estructura con Gemini, y es **sin estado**: no guarda nada, no conoce
+identidades y no decide nada.
+
+### Lo que devuelve es un borrador, no un registro
+
+Nada se guarda hasta que la persona que vivió el turno lo confirma. Con
+el umbral de similitud o con el anti-passback decide otro servicio,
+porque hay una regla mecánica que aplicar. Un parte de relevo no tiene
+regla: es el testimonio de alguien, y es el documento que se lee cuando
+algo ha salido mal. **Un renglón inventado ahí manda a una persona a
+investigar un hecho que nunca ocurrió.**
+
+### Cómo se comprueba que el modelo no se inventó nada
+
+Al modelo se le exige una **cita literal** de la transcripción por cada
+incidencia, y después el servicio comprueba que esa cita existe de
+verdad en el texto. Cada incidencia sale marcada con `citaVerificada`.
+
+> «No inventes nada» es una instrucción y no se puede verificar.
+> «Enséñame dónde lo leíste» sí.
+
+Una cita que no cuadra **se marca, no se borra**: esconderla sería
+perder justo lo que quien revisa necesita ver. El recuento va al span de
+la traza como `voice.incidents.unbacked`.
+
+Es lo único de este servicio que se puede probar sin red, y por eso sus
+16 casos corren en el CI.
+
+### Si un proveedor se cae, el parte se registra igual
+
+| Qué falla | Qué pasa |
+|---|---|
+| Gemini | Se devuelve la transcripción sola, y `estructuraOmitidaPor` dice por qué |
+| Deepgram | `503` con código `TRANSCRIPTION_UNAVAILABLE`, para ofrecer escribirlo a mano |
+| Faltan las claves | El servicio arranca igual y lo avisa en el log |
+
+### Aviso de privacidad
+
+El resto del sistema no deja salir ningún dato biométrico: los vectores
+faciales no cruzan la frontera y no se guarda ninguna imagen. **Este
+servicio sí**: manda audio a Deepgram y texto a Google, y la voz también
+es un dato biométrico.
+
+El audio no se almacena en ningún sitio —ni disco, ni caché, ni logs— y
+ni la transcripción ni el texto estructurado aparecen en las trazas, que
+solo llevan métricas. Pero la afirmación «ningún dato biométrico sale
+del sistema» **deja de ser cierta** con la Fase 5 encendida, y está
+dicho aquí para que nadie lo descubra leyendo el código.
+
+Ver [ADR 0011](docs/adr/0011-voz-e-ia.md).
+
+---
+
 ## Observabilidad
 
 Los seis servicios exportan trazas y métricas por OTLP a un
@@ -1336,3 +1394,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0008 | Cada servicio es dueño de sus tipos; se retira el paquete de contratos |
 | 0009 | Observabilidad con OpenTelemetry, y la traza cruza el bus |
 | 0010 | Detección de vida pasiva, y por qué no deniega por defecto |
+| 0011 | Voz e IA: el modelo propone, la persona firma |
