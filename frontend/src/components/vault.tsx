@@ -98,11 +98,19 @@ export function GlassCard({
   children,
   className,
   glow,
+  /**
+   * Etiqueta HTML a usar. Por defecto un `div`, pero una tarjeta que
+   * forma parte de una lista tiene que ser un `li` o el marcado deja de
+   * ser válido y el lector de pantalla no anuncia cuántos elementos
+   * hay.
+   */
+  as: Tag = 'div',
 }: {
   children: ReactNode;
   className?: string;
   /** Añade un halo de color al borde. Para destacar una sección. */
   glow?: Accent;
+  as?: 'div' | 'li' | 'article' | 'section';
 }) {
   const GLOW: Record<Accent, string> = {
     purple: 'shadow-[0_0_0_1px_rgb(255_255_255/0.06),0_0_40px_-16px_var(--color-vault-purple)]',
@@ -111,7 +119,7 @@ export function GlassCard({
   };
 
   return (
-    <div
+    <Tag
       className={cn(
         'rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-2xl',
         glow
@@ -121,7 +129,7 @@ export function GlassCard({
       )}
     >
       {children}
-    </div>
+    </Tag>
   );
 }
 

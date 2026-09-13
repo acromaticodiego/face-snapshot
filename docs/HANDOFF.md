@@ -44,9 +44,10 @@ una cámara, el sistema decide si puede entrar según su rol, la zona y
 el horario, y registra el acceso.
 
 Arquitectura de microservicios, funcionando de extremo a extremo.
-**Fases 1, 2, 3 y 4 completadas**, más el rol en el alta de la persona.
-Lo siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: las pruebas
-del frontend y después la Fase 5 (voz e IA).
+**Fases 1, 2, 3 y 4 completadas**, más el rol en el alta, la capacidad
+del Vision Service y los tests del perímetro y del frontend.
+Lo siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: la Fase 6
+(anti-spoofing) o la Fase 5 (voz e IA), sin decidir cuál va antes.
 
 ---
 
@@ -242,7 +243,7 @@ fallos**:
 1. **Sin anti-spoofing.** Una foto en un móvil pasaría la
    autenticación. El sistema no es apto para producción real.
 2. **Cobertura de tests desigual, pero ya no en el perímetro.** Hay
-   **181 casos** repartidos así:
+   **214 casos** repartidos así:
 
    | Servicio | Casos | Qué cubre |
    |---|---|---|
@@ -250,14 +251,18 @@ fallos**:
    | `shift-service` | 44 | Máquina de turnos, parser del bus, contexto de traza |
    | `api-gateway` | 26 | Los dos guards: la exclusión entre administrar y estar reconocido |
    | `auth-service` | 17 | Login, bloqueo por intentos, igualación de tiempos |
+   | `frontend` | 33 | Reglas de `/home` y los tres estados del rol |
 
    Todas son funciones puras o con dobles, así que corren en segundos y
    sin contenedores.
 
-   **El frontend sigue sin ninguna prueba**, y ni siquiera tiene la
-   infraestructura montada (no hay vitest ni testing-library). Es la
-   brecha más visible ahora que hay tres pantallas con lógica de
-   presentación real.
+   El **frontend** tiene ya 33 casos con vitest y testing-library, y
+   corren en el CI. Cubren las reglas, no los estilos: qué controles
+   existe en cada estado de turno y los tres estados del rol en el
+   listado. La cobertura global ronda el 17 %: se empezó por donde una
+   regresión silenciosa cuesta caro, no por subir un porcentaje. Lo que
+   queda sin tocar es el panel de operación, el asistente de alta y la
+   captura de cámara.
 
    `face-service` tampoco tiene tests propios. Su garantía crítica —que
    los embeddings no salgan del backend— la impone el tipo
@@ -381,14 +386,47 @@ porque se derivaba del contexto activo. Nacía sin registrar y el tramo
 asíncrono no salía en ninguna traza, sin ningún error por ningún sitio.
 Se extrae desde `ROOT_CONTEXT`.
 
+### ~~Pruebas del frontend~~ · HECHA
+
+Infraestructura con vitest, jsdom y testing-library —no había ninguna— y
+33 casos. **Corren en el CI**: hubo que añadir el paso, porque el
+frontend solo comprobaba tipos y compilación, y unos tests que no se
+ejecutan son decoración.
+
+**No se comprueba ni una clase de Tailwind.** Los estilos cambian con
+cada ajuste de diseño, y una suite que se rompe al mover un margen es
+una suite que nadie vuelve a ejecutar. Lo que se fija son las reglas que
+la interfaz representa, y dos no están escritas en ningún servicio: qué
+puede hacer un botón —declarar un descanso sí, fichar jamás, y quien
+está `EN_PAUSA` nada porque está fuera del edificio— y los tres estados
+del rol en el listado, donde `null` es «no se pudo preguntar» y `[]` es
+«no tiene ninguno».
+
+Se verificaron rompiéndolos, igual que los del perímetro.
+
+**Un cambio pequeño en producción, justificado por sí mismo:** el
+listado de personas pasa a ser un `<ul>` de verdad, con `GlassCard`
+aceptando la etiqueta a renderizar. Una lista de personas es una lista;
+el lector de pantalla anuncia cuántas hay, y la línea de tiempo de
+`/home` ya usaba `<ol>` por lo mismo. De paso hace las fichas acotables
+en un test sin depender de la posición.
+
+**Si escribes más tests aquí, cuidado con los nombres de los fixtures.**
+Dos de los míos fallaron por eso y no por el producto: una persona
+llamada «Sin Rol» choca con la insignia «Sin rol», y un punto de acceso
+llamado «Entrada Principal» choca con la etiqueta «Entrada» de la línea
+de tiempo.
+
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Pruebas del frontend.** Cero ahora mismo, y ya hay tres pantallas
-con lógica de presentación real (la máquina de estados pintada en
-`/home`, las traducciones exhaustivas de motivos en el panel, y ahora
-el asistente de alta con sus tres pasos y sus estados incompletos).
+**1. Fase 6, anti-spoofing** (ver la recomendación más abajo) **o
+Fase 5, voz e IA.**
 
-**2. Fase 5, voz e IA.** Descrita más abajo, sin cambios.
+El orden entre esas dos está sin decidir. Fase 6 cierra el agujero
+que el propio README reconoce —una foto en un móvil pasa la
+autenticación, y el sistema no es apto para producción por eso—, y su
+punto de enganche ya existe: la votación multi-frame acumula frames
+consecutivos, que es lo que necesita una detección de vida pasiva.
 
 ### Fase 5 — Voz e IA
 - `voice-service` (Python, sin estado, simétrico al vision-service):

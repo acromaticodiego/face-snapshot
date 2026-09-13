@@ -1180,6 +1180,7 @@ node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
 | Perímetro: login de administración | 17 |
 | Política de acceso, votación, anti-passback, umbral, outbox, evento | 94 |
 | Máquina de turnos y parser del bus | 44 |
+| Frontend: reglas de `/home` y del listado de personas | 33 |
 
 Las dos primeras filas son nuevas y tapan una asimetría que el proyecto
 arrastraba: se probaba a fondo la **lógica de dominio** y no se probaba
@@ -1211,13 +1212,39 @@ Ambos servicios exigen **100 % de cobertura** sobre esos archivos en su
 `jest.config.js`, y hoy la cumplen en sentencias, ramas, funciones y
 líneas.
 
+### El frontend prueba reglas, no estilos
+
+Ni una clase de Tailwind aparece en una aserción. Los estilos cambian
+cada vez que alguien ajusta el diseño, y una suite que se rompe al mover
+un margen es una suite que la gente deja de ejecutar. Lo que se
+comprueba son las **reglas que la interfaz representa**, y dos de ellas
+no están escritas en ningún servicio:
+
+- **Qué puede y qué no puede hacer un botón.** Declarar un descanso, sí.
+  Fichar la entrada o la salida, jamás: eso lo decide el Access Service
+  con una cara delante de una cámara. Y quien está `EN_PAUSA` está
+  **fuera del edificio**, así que no puede declarar nada; su vuelta la
+  registra la puerta.
+- **Los tres estados del rol en el listado.** `null` es «no se pudo
+  preguntar al Access Service» y `[]` es «no tiene ninguno».
+  Confundirlos marcaría a toda la plantilla en ámbar durante una caída,
+  y mandaría a quien administra a asignar roles que ya existen.
+
+> Estos también se comprobaron **rompiéndolos**: al hacer que `EN_PAUSA`
+> vuelva a mostrar los botones de descanso falla un test, y solo uno. Al
+> tratar `roles: null` como «sin rol», fallan tres.
+
 ### Lo que sigue sin tests
 
-El **frontend**, que no tiene ni infraestructura montada, y ya son tres
-pantallas con lógica de presentación real. Y el pipeline de
-reconocimiento y el enrolamiento, que necesitan imágenes y modelos: la
-prueba de humo los cubre de extremo a extremo, pero no como test
-unitario.
+El resto de la interfaz: el panel de operación y el asistente de alta
+tienen cobertura parcial, y la captura de cámara ninguna. Y el pipeline
+de reconocimiento y el enrolamiento, que necesitan imágenes y modelos
+reales: la prueba de humo los cubre de extremo a extremo, pero no como
+test unitario.
+
+La cobertura global del frontend ronda el 17 %, y eso no es un
+descuido: se empezó por donde una regresión silenciosa cuesta caro, no
+por subir un porcentaje.
 
 ---|---|---|
 | Política de acceso (rol · zona · horario) | `access-service/src/policy` | 31 |
