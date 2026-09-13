@@ -136,6 +136,15 @@ jobs:
         working-directory: services/voice-service
         run: python -m compileall -q app tests
 
+      # Lo ÚNICO que se instala, y solo por los tests del reintento:
+      # el módulo que prueban importa httpx para distinguir los errores
+      # de transporte por su tipo. Son unos segundos y evitan que esos
+      # casos queden sin ejecutar en ninguna parte.
+      #
+      # Los de `citas.py` no necesitan nada y correrían igual sin esto.
+      - name: Instalar lo mínimo para los tests
+        run: pip install httpx==0.28.1
+
       # Estas pruebas SI se ejecutan, al contrario que las del Vision
       # Service, y es que se puede: `app/services/citas.py` solo usa la
       # biblioteca estandar, asi que corren sin instalar ni una

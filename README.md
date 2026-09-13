@@ -1120,6 +1120,62 @@ solo llevan métricas. Pero la afirmación «ningún dato biométrico sale
 del sistema» **deja de ser cierta** con la Fase 5 encendida, y está
 dicho aquí para que nadie lo descubra leyendo el código.
 
+### Si dictar devuelve «la transcripción no está disponible»
+
+**Lo primero que hay que descartar no es el código, es la máquina.** El
+Voice Service es el único servicio que sale a Internet, así que es el
+único al que le afectan estas cosas, y el síntoma no se parece a su
+causa. Tres comprobaciones, en este orden.
+
+**1. ¿Resuelve el nombre?**
+
+```bash
+docker compose exec voice-service python -c   "import socket; print(socket.gethostbyname('api.deepgram.com'))"
+```
+
+Hay routers y filtros que resuelven todo menos ciertos nombres,
+devolviendo respuesta vacía en lugar de error. Si falla, pon 1.1.1.1 o
+8.8.8.8 como DNS **en el host** —cura además los fallos al construir
+imágenes, que vienen de lo mismo—. Parche inmediato:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dns.yml up -d
+```
+
+**2. ¿Hay un antivirus interceptando el TLS?** Es la causa que más
+cuesta identificar, porque el error dice «certificado autofirmado en la
+cadena» y suena a problema del servidor:
+
+```bash
+docker compose exec voice-service python -c "
+import socket, ssl, re
+s = socket.create_connection(('api.deepgram.com', 443), timeout=10)
+t = ssl._create_unverified_context().wrap_socket(s, server_hostname='api.deepgram.com')
+der = t.getpeercert(binary_form=True)
+legible = bytes(c if 32 <= c < 127 else 46 for c in der).decode()
+print(' | '.join(re.findall(r'[ -~]{5,}', legible)[:4]))"
+```
+
+Si ahí aparece el nombre de un antivirus en lugar de una autoridad
+conocida, ese antivirus está abriendo y volviendo a firmar la conexión.
+**Se comprobó en esta máquina:** 7 de 8 conexiones llegaban firmadas por
+«AO Kaspersky Lab», y 9 de cada 10 peticiones fallaban por eso.
+
+El arreglo, en orden de preferencia:
+
+1. **Excluir `api.deepgram.com`** del análisis de conexiones cifradas
+   del antivirus. Es lo más quirúrgico y suele arreglar también el
+   punto 1, porque ese mismo filtrado actúa sobre el DNS.
+2. Desactivar el análisis de HTTPS. Más amplio de lo necesario.
+3. Añadir la raíz del antivirus al almacén de confianza del contenedor.
+   Funciona, y conviene saber lo que implica: **el antivirus lee el
+   audio en tránsito**, y este proyecto es cuidadoso justamente con eso.
+
+**3. ¿Llegó y volvió vacío?** Si el mensaje dice **«no se reconoció
+ninguna palabra en el audio»**, entonces la red está bien y es el
+micrófono. Los dos mensajes se distinguen a propósito, porque llevan a
+buscar en sitios opuestos.
+
 Ver [ADR 0011](docs/adr/0011-voz-e-ia.md).
 
 ### Dónde se guarda, y por qué no en el servicio de turnos

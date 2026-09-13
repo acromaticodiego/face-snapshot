@@ -65,6 +65,16 @@ const recorder = {
 
 vi.mock('@/hooks/useRecorder', () => ({ useRecorder: () => recorder }));
 
+/** Se espía el aviso para poder comprobar QUE dice, no solo que avisa. */
+const toast = { error: vi.fn(), success: vi.fn() };
+vi.mock('sonner', () => ({ toast }));
+
+// `ApiError` se importa AQUI y no arriba: un import de valor sobre un
+// módulo mockeado dispara la fábrica de `vi.mock`, que está izada al
+// principio del archivo, antes de que exista la constante `api` que esa
+// fábrica usa. El síntoma es un «Cannot access 'api' before
+// initialization» que no señala a la línea culpable.
+const { ApiError } = await import('@/lib/api');
 const { HandoverPage } = await import('./HandoverPage');
 
 const SEDE = '11111111-1111-4111-8111-111111111111';
@@ -93,6 +103,7 @@ const borrador = (
   },
   estructura: { resumen: 'Turno tranquilo.', incidencias },
   estructuraOmitidaPor: null,
+  modeloEstructurador: 'gemini-3.8-flash',
   processingTimeMs: 2100,
   transcribeTimeMs: 1400,
   structureTimeMs: 700,
@@ -185,6 +196,53 @@ describe('HandoverPage · se puede llegar al final sin micrófono', () => {
   });
 });
 
+describe('HandoverPage · cuando la transcripción falla', () => {
+  /**
+   * El motivo tiene que sobrevivir hasta la pantalla.
+   *
+   * «No se reconoció ninguna palabra» y «no se pudo contactar con el
+   * servicio» llevan a acciones opuestas —revisar el micrófono, o
+   * avisar de que algo está caído—. Un mensaje fijo para los dos manda
+   * a buscar donde no es, y eso se descubrió usándolo, no leyéndolo.
+   */
+  async function fallarCon(message: string) {
+    const usuario = userEvent.setup();
+    const error = new ApiError(message, 503, 'TRANSCRIPTION_UNAVAILABLE');
+    api.logbookDraft.mockRejectedValue(error);
+
+    await usuario.click(
+      await screen.findByRole('button', { name: /dictar el parte/i }),
+    );
+    recorder.isRecording = true;
+    await usuario.click(screen.getByRole('button', { name: /dictar el parte/i }));
+    return usuario;
+  }
+
+  it('dice que no se reconoció nada cuando el audio venía mudo', async () => {
+    montar();
+    await fallarCon('No se reconocio ninguna palabra en el audio');
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error.mock.calls[0][0]).toMatch(/ninguna palabra/i);
+  });
+
+  it('dice que no se pudo contactar cuando el proveedor no responde', async () => {
+    montar();
+    await fallarCon('No se pudo contactar con el servicio de transcripcion');
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(toast.error.mock.calls[0][0]).toMatch(/no se pudo contactar/i);
+  });
+
+  it('en los dos casos deja escribir el parte a mano', async () => {
+    montar();
+    await fallarCon('No se pudo contactar con el servicio de transcripcion');
+
+    expect(await screen.findByLabelText(/resumen del turno/i)).toBeVisible();
+    expect(toast.error.mock.calls[0][0]).toMatch(/a mano/i);
+  });
+});
+
 describe('HandoverPage · revisar antes de firmar', () => {
   it('enseña la transcripción y no deja editarla', async () => {
     montar();
@@ -248,6 +306,7 @@ describe('HandoverPage · revisar antes de firmar', () => {
       ...borrador([]),
       estructura: null,
       estructuraOmitidaPor: 'El estructurador no respondió',
+      modeloEstructurador: null,
     });
 
     await usuario.click(
@@ -290,6 +349,9 @@ describe('HandoverPage · lo que se firma', () => {
     expect(enviado.incidents[0].origin).toBe('PROPUESTA_ACEPTADA');
     expect(enviado.source).toBe('DICTADO');
     expect(enviado.transcriptionModel).toBe('nova-3');
+    // La versión concreta, no la marca: es lo que hace rastreable el
+    // parte si un día se descubre que ese modelo agrupaba mal.
+    expect(enviado.structuringModel).toBe('gemini-3.8-flash');
   });
 
   it('corregir el título la convierte en editada', async () => {

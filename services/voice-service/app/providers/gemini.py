@@ -172,11 +172,16 @@ class GeminiStructurer:
                         headers={"x-goog-api-key": self._settings.gemini_api_key},
                     )
 
-                # Medido contra la API real: este modelo devuelve
-                # `503 UNAVAILABLE` -"experiencing high demand"- en una
-                # peticion y 200 en la siguiente con el mismo cuerpo.
+                # TRES intentos, y el numero esta medido. Este modelo
+                # devuelve `503 UNAVAILABLE` -"experiencing high
+                # demand"- por RACHAS: sondeandolo seis veces seguidas
+                # dio 2/6 en un momento y 6/6 pocos minutos despues.
+                # Con dos intentos separados medio segundo, los dos caen
+                # dentro de la misma racha y se pierde la
+                # estructuracion de un parte que estaba bien.
                 respuesta = await con_reintento(
                     pedir,
+                    intentos=3,
                     al_reintentar=lambda motivo: logger.info(
                         "gemini_reintento", motivo=motivo
                     ),

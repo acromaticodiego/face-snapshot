@@ -1,0 +1,56 @@
+# ══════════════════════════════════════════════════════════════════
+#  Superposición OPCIONAL: DNS público para el Voice Service
+#
+#  PARA QUE SIRVE
+#  ──────────────
+#  Hay routers domésticos y de algunos operadores que resuelven todo
+#  menos ciertos nombres concretos: devuelven una respuesta vacía en
+#  lugar de un error. Con `api.deepgram.com` pasa, y el síntoma no se
+#  parece a un problema de DNS:
+#
+#      · `nslookup api.deepgram.com` funciona
+#      · `getaddrinfo` dentro del contenedor falla con
+#        «No address associated with hostname»
+#      · todos los demás dominios resuelven bien
+#      · dictar un parte devuelve 503 TRANSCRIPTION_UNAVAILABLE
+#
+#  Para comprobar si es tu caso:
+#
+#      docker compose exec voice-service python -c \
+#        "import socket; print(socket.gethostbyname('api.deepgram.com'))"
+#
+#  COMO USARLA
+#  ───────────
+#      docker compose -f docker-compose.yml -f docker-compose.dns.yml up -d
+#
+#  OJO: SI NO ES EL ROUTER, PUEDE SER EL ANTIVIRUS
+#  ────────────────────────────────────────────────
+#  Algunos antivirus filtran a nivel de DNS Y ademas interceptan el
+#  TLS, y dan los dos sintomas a la vez sobre el mismo dominio. Si tras
+#  aplicar esta superposicion el nombre resuelve pero la peticion sigue
+#  fallando con «certificado autofirmado en la cadena», es eso. El
+#  README lo explica en «Si dictar devuelve la transcripcion no esta
+#  disponible».
+#
+#  POR QUE ESTO NO ESTA EN EL COMPOSE PRINCIPAL
+#  ────────────────────────────────────────────
+#  Porque es el parche, no el arreglo. El arreglo es poner un DNS que
+#  funcione en el HOST -1.1.1.1 o 8.8.8.8 en el adaptador de red-, que
+#  además cura otros síntomas del mismo problema: la construcción de
+#  imágenes también falla cuando `auth.docker.io` no resuelve.
+#
+#  Cablear estos servidores en el compose por defecto le impondría el
+#  DNS de una red concreta a cualquiera que clone el proyecto, para
+#  resolver un problema que la mayoría no tiene. Dejarlo aparte y
+#  explicado permite usarlo a quien le haga falta sin que nadie más lo
+#  herede sin enterarse.
+#
+#  Solo afecta al Voice Service: es el ÚNICO servicio del sistema que
+#  necesita salir a Internet.
+# ══════════════════════════════════════════════════════════════════
+
+services:
+  voice-service:
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8

@@ -83,6 +83,14 @@ class LogbookDraftResponse(BaseModel):
     #: Por que no hay estructura, cuando no la hay. `None` si la hay.
     estructuraOmitidaPor: str | None = None
 
+    #: Que modelo produjo la estructura. `None` si no hay estructura.
+    #:
+    #: Viaja para que el parte firmado pueda guardar la VERSION
+    #: concreta y no la marca. Si dentro de un ano se descubre que una
+    #: version agrupaba mal, hay que poder encontrar que partes pasaron
+    #: por ella, y "gemini" a secas no sirve para eso.
+    modeloEstructurador: str | None = None
+
     processingTimeMs: float
     transcribeTimeMs: float
     structureTimeMs: float | None = None

@@ -172,7 +172,31 @@ section('6. services/voice-service');
 {
   const cwd = join(process.cwd(), 'services', 'voice-service');
   step('Sintaxis de Python', 'python -m compileall -q app tests', cwd);
-  step('Tests', 'python -m unittest discover -s tests -q', cwd);
+
+  // Los tests de `citas.py` no dependen de nada fuera de la biblioteca
+  // estándar y corren siempre. Los del reintento SI necesitan httpx,
+  // porque el módulo que prueban lo importa para distinguir los
+  // errores de transporte por su tipo.
+  //
+  // Cuando falta, se ejecutan los que se pueda y se DICE cuáles no,
+  // en lugar de callarlo o de dar por bueno un "sin tests". En el CI
+  // de GitHub sí se instala, así que allí corren todos.
+  const conHttpx = run('python -c "import httpx"', cwd).ok;
+
+  step(
+    conHttpx ? 'Tests' : 'Tests (solo los que no necesitan httpx)',
+    conHttpx
+      ? 'python -m unittest discover -s tests -q'
+      : 'python -m unittest discover -s tests -q -p "test_citas*.py"',
+    cwd,
+  );
+
+  if (!conHttpx) {
+    console.log(
+      '[90m      httpx no está instalado: los tests del reintento se ' +
+        'ejecutan en el CI y en el contenedor.[0m',
+    );
+  }
 }
 
 // ── Resumen ───────────────────────────────────────────────────────

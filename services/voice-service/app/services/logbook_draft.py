@@ -124,6 +124,12 @@ class LogbookDraftService:
             transcripcion=transcripcion,
             estructura=estructura,
             estructuraOmitidaPor=omitida,
+            # Solo cuando hay estructura: decir que modelo la hizo
+            # cuando no la hay seria atribuirle un trabajo que no
+            # llego a hacer.
+            modeloEstructurador=(
+                self._settings.gemini_model if estructura is not None else None
+            ),
             processingTimeMs=round((time.perf_counter() - empezo) * 1000, 2),
             transcribeTimeMs=ms_transcribir,
             structureTimeMs=ms_estructurar,

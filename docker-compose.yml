@@ -174,11 +174,14 @@ services:
     # Este es el UNICO servicio del sistema que necesita salir a
     # Internet, y por eso es el unico al que le puede afectar el DNS de
     # la red local. Si `api.deepgram.com` no resuelve dentro del
-    # contenedor -pasa con algunos routers domesticos, que devuelven
-    # respuesta vacia para ese nombre-, el arreglo correcto es poner un
-    # DNS que funcione en el HOST. Descomentar esto lo parchea solo
-    # aqui, y conviene saber que se esta parcheando:
-    # dns: [1.1.1.1, 8.8.8.8]
+    # contenedor -pasa con algunos routers, que devuelven respuesta
+    # vacia para ese nombre concreto mientras resuelven todo lo demas-,
+    # el arreglo correcto es poner un DNS que funcione en el HOST.
+    #
+    # Mientras tanto hay una superposicion opcional que lo parchea solo
+    # para este servicio, con el diagnostico escrito dentro:
+    #
+    #   docker compose -f docker-compose.yml -f docker-compose.dns.yml up -d
     # Sin `ports`: servicio interno, igual que el Vision Service.
     expose:
       - '8001'

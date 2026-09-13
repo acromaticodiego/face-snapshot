@@ -115,7 +115,10 @@ export function HandoverPage() {
     setTranscript(draft.transcripcion.texto);
     setModels({
       transcription: draft.transcripcion.modelo,
-      structuring: draft.estructura ? 'gemini' : null,
+      // La VERSION concreta que devuelve el servicio, no la marca:
+      // es lo que permite rastrear qué partes pasaron por un modelo
+      // concreto si algún día resulta que agrupaba mal.
+      structuring: draft.modeloEstructurador,
     });
     setStructureNote(draft.estructuraOmitidaPor);
 
@@ -152,14 +155,22 @@ export function HandoverPage() {
     try {
       applyDraft(await api.logbookDraft(audio));
     } catch (err) {
-      // El 503 del Voice Service llega con su código, y la salida es
-      // concreta: escribir el parte a mano. Un error genérico dejaría
-      // a alguien sin saber qué hacer al final de su turno.
+      // El 503 del Voice Service llega con su código Y con un motivo
+      // concreto, y los dos importan: el código dice qué hacer
+      // —escribirlo a mano— y el motivo dice POR QUÉ, que es lo único
+      // que permite arreglarlo.
+      //
+      // La primera versión de esto aplastaba los dos casos en un
+      // mensaje fijo, y se notó en cuanto se probó de verdad: «no se
+      // reconoció ninguna palabra en el audio» y «no se pudo contactar
+      // con el servicio» llevan a acciones opuestas —revisar el
+      // micrófono o avisar de que algo está caído— y decir lo mismo en
+      // los dos manda a buscar donde no es.
       const sinTranscripcion =
         err instanceof ApiError && err.code === 'TRANSCRIPTION_UNAVAILABLE';
       toast.error(
         sinTranscripcion
-          ? 'La transcripción no está disponible. Escribe el parte a mano.'
+          ? `${(err as ApiError).message}. Escribe el parte a mano.`
           : err instanceof ApiError
             ? err.message
             : 'No se pudo preparar el borrador',

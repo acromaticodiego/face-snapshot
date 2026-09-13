@@ -300,6 +300,14 @@ export interface LogbookDraft {
   } | null;
   /** Por qué no hay estructura, cuando no la hay. */
   estructuraOmitidaPor: string | null;
+  /**
+   * Qué modelo produjo la estructura, con su versión concreta.
+   *
+   * Se guarda en el parte firmado. Apuntar «gemini» a secas no serviría
+   * para lo que este dato existe: poder encontrar qué partes pasaron
+   * por una versión si se descubre que agrupaba mal.
+   */
+  modeloEstructurador: string | null;
   processingTimeMs: number;
   transcribeTimeMs: number;
   structureTimeMs: number | null;

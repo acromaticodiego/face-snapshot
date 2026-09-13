@@ -21,10 +21,16 @@ volver a dictarlo.
 
 LO QUE ESTE REINTENTO NO HACE
 ─────────────────────────────
-No enmascara un fallo persistente. Son DOS intentos, no diez, y si el
-segundo falla la degradacion que ya existia sigue en pie tal cual: sin
-transcripcion se devuelve 503 con su codigo para que el parte se
+No enmascara un fallo persistente. Son dos o tres intentos, no diez, y
+cuando se agotan la degradacion que ya existia sigue en pie tal cual:
+sin transcripcion se devuelve 503 con su codigo para que el parte se
 escriba a mano, y sin estructuracion se devuelve la transcripcion sola.
+
+El numero sale de medir, no de elegir un numero redondo. Sondeando la
+API real seis veces por modelo, `gemini-3.8-flash` dio 6/6 en un
+momento y 2/6 minutos antes, y otros modelos fallaron en las mismas
+rachas: no es una propiedad del modelo, es que la carga va por olas.
+Contra eso lo que sirve son intentos separados en el tiempo.
 
 Tampoco reintenta lo que no tiene sentido reintentar. Un 401 por una
 clave mal puesta o un 413 por un audio demasiado grande dan el mismo
@@ -47,29 +53,42 @@ ESTADOS_TRANSITORIOS = frozenset({429, 500, 502, 503, 504})
 async def con_reintento(
     peticion: Callable[[], Awaitable[httpx.Response]],
     *,
+    intentos: int = 2,
     espera_s: float = 0.5,
     al_reintentar: Callable[[str], None] | None = None,
 ) -> httpx.Response:
     """
-    Ejecuta `peticion`, y la repite UNA vez si el fallo es transitorio.
+    Ejecuta `peticion`, repitiendola si el fallo es transitorio.
 
-    Si el segundo intento tambien lanza un error de transporte, se
-    propaga: quien llama ya sabe degradarse, y convertir ese error en
-    algo distinto solo le quitaria informacion.
+    La espera CRECE entre intentos, y no por doctrina sino por lo que
+    se midio: los 503 de Gemini no llegan sueltos, llegan en rachas de
+    varios segundos. Una espera fija y corta cae dentro de la misma
+    racha y gasta el intento para nada.
+
+    Si el ultimo intento tambien falla, se devuelve o se propaga tal
+    cual: quien llama ya sabe degradarse, y convertir eso en otra cosa
+    solo le quitaria informacion.
     """
-    try:
-        respuesta = await peticion()
-        if respuesta.status_code not in ESTADOS_TRANSITORIOS:
-            return respuesta
-        motivo = f"estado {respuesta.status_code}"
-    except httpx.HTTPError as exc:
-        motivo = type(exc).__name__
+    espera = espera_s
 
-    if al_reintentar is not None:
-        al_reintentar(motivo)
+    for intento in range(intentos):
+        ultimo = intento == intentos - 1
+        try:
+            respuesta = await peticion()
+            if respuesta.status_code not in ESTADOS_TRANSITORIOS or ultimo:
+                return respuesta
+            motivo = f"estado {respuesta.status_code}"
+        except httpx.HTTPError as exc:
+            if ultimo:
+                raise
+            motivo = type(exc).__name__
 
-    # Una espera corta y fija. No hay retroceso exponencial porque con
-    # un solo reintento no habria donde aplicarlo, y alargarla mas
-    # empujaria la peticion contra el plazo del cliente.
-    await asyncio.sleep(espera_s)
-    return await peticion()
+        if al_reintentar is not None:
+            al_reintentar(motivo)
+
+        await asyncio.sleep(espera)
+        espera *= 3
+
+    # Inalcanzable: el bucle siempre sale por `return` o por `raise` en
+    # el ultimo intento. Esta por si alguien toca el rango.
+    raise RuntimeError("con_reintento no llego a intentar nada")
