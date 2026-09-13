@@ -22,6 +22,16 @@ const AssignRoleSchema = z.object({
 });
 
 /**
+ * El tope coincide con el que aplica el Face Service al listar
+ * personas: quien pregunta lo hace por una página de esa lista, así
+ * que pedir más de lo que cabe en una página sería preguntar por
+ * personas que nadie está mirando.
+ */
+const RolesLookupSchema = z.object({
+  personIds: z.array(z.string().uuid()).min(1).max(200),
+});
+
+/**
  * Administración del dominio de acceso.
  *
  * Servicio interno: lo consume el Gateway, que es quien exige el token
@@ -85,6 +95,48 @@ export class PolicyController {
       orderBy: { name: 'asc' },
     });
     return { items: schedules };
+  }
+
+  /**
+   * Roles de varias personas de una vez.
+   *
+   * Existe para que el Gateway pueda componer la lista de personas con
+   * su rol sin hacer una petición por fila. Sin esto, pintar el panel
+   * de administración con veinte personas serían veintiuna llamadas
+   * entre servicios cada vez que alguien escribe una letra en el
+   * buscador.
+   *
+   * Es una lectura, pero va por POST porque doscientos UUID no caben
+   * con holgura en una cadena de consulta: son unos siete kilobytes de
+   * URL, por encima de lo que algunos proxies aceptan sin avisar.
+   */
+  @Post('persons/roles/lookup')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Roles asignados a un conjunto de personas' })
+  async lookupPersonRoles(
+    @Body(new ZodValidationPipe(RolesLookupSchema))
+    body: z.infer<typeof RolesLookupSchema>,
+  ) {
+    const assignments = await this.prisma.personRole.findMany({
+      where: { personId: { in: body.personIds } },
+      include: { role: { select: { name: true } } },
+    });
+
+    // Se devuelve un mapa con TODAS las personas preguntadas, incluidas
+    // las que no tienen ningún rol. Una clave ausente y una lista vacía
+    // se leerían igual en el cliente, y no son lo mismo: sin rol es
+    // justo el caso que esta pantalla existe para hacer visible.
+    const byPerson: Record<string, { roleId: string; roleName: string }[]> =
+      Object.fromEntries(body.personIds.map((id) => [id, []]));
+
+    for (const assignment of assignments) {
+      byPerson[assignment.personId].push({
+        roleId: assignment.roleId,
+        roleName: assignment.role.name,
+      });
+    }
+
+    return { byPerson };
   }
 
   @Get('persons/:personId/roles')

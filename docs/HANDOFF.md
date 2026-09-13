@@ -44,9 +44,9 @@ una cámara, el sistema decide si puede entrar según su rol, la zona y
 el horario, y registra el acceso.
 
 Arquitectura de microservicios, funcionando de extremo a extremo.
-**Fases 1, 2 y 3 completadas.** Lo siguiente está en la sección
-«LO SIGUIENTE, POR ORDEN»: asignar el rol en el alta, y después la
-Fase 4 (observabilidad).
+**Fases 1, 2 y 3 completadas**, más el rol en el alta de la persona. Lo
+siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: la Fase 4
+(observabilidad).
 
 ---
 
@@ -122,6 +122,11 @@ puntos nativos de SCRFD, no de documentación.
   cruzan ningún lector, y sin poder declararlos la jornada contaría
   como trabajado todo el rato dentro del edificio. `POST
   /me/shift/break` y `/me/shift/resume`.
+- **`/admin/faces`**: el alta es un asistente de datos → rol → rostro, y
+  la lista marca a quien le falte un paso. El listado es el único sitio
+  donde el Gateway compone dos servicios (identidad del Face Service,
+  rol del Access Service), con plazo propio de 2 s y degradación a
+  `roles: null` si el Access Service no responde.
 
 **Restricciones del panel que NO hay que romper.** Ocupa exactamente el
 alto de la ventana y no crece: tres columnas que desbordan *por dentro*
@@ -275,20 +280,35 @@ Sin librería de gráficos: el histograma son barras y el mapa de calor
 una cuadrícula, y tematizar Recharts para el cristal esmerilado era más
 código que dibujarlos.
 
+### ~~Asignar el rol en el alta~~ · HECHA
+
+El alta es ahora un asistente de tres pasos —datos → rol → rostro— y la
+lista marca a quien le falte alguno, con un botón que lleva al paso que
+falta. Está explicado en el README.
+
+**Corrección de cifras, porque el dato que había aquí engañaba.** Este
+documento decía «12 personas y solo 6 con rol». Las 12 salían de contar
+la tabla entera, y el borrado de personas es **lógico**: deja una lápida
+con `deleted_at` y `status = SUSPENDED` porque los registros de
+auditoría apuntan a esas filas. De las 12, ocho eran lápidas de pruebas
+de humo. El recuento real de personas vivas era **5, de las cuales 1 sin
+rol**. El agujero era verdadero, pero cuatro veces más pequeño de lo que
+decía el documento. Al contar filas de esta base de datos, filtra por
+`deleted_at IS NULL`.
+
+Lo que sigue sin cerrarse, y es deliberado: **por API todavía se puede
+crear a alguien sin rol.** Cerrarlo en el servidor obligaría al Face
+Service a llamar al Access Service, invirtiendo la única dirección de
+dependencia que hoy está limpia. Lo exige el asistente, no el servidor.
+
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Asignar el rol en el alta de la persona.** Rápido y tapa un
-agujero real: hoy hay 12 personas registradas y solo 6 con rol. Las
-otras seis son registros inútiles —el sistema las reconoce y no las
-deja pasar—, y se nota en el propio panel: `NO_ROLE_ASSIGNED` es la
-segunda causa de denegación con 80 casos. Lo estándar en la industria
-es que el alta sea un onboarding: datos → rol → captura del rostro.
+**1. Fase 4, observabilidad.** El grueso del trabajo.
 
-**2. Fase 4, observabilidad.** El grueso del trabajo.
-
-**3. Pruebas del frontend.** Cero ahora mismo, y ya hay dos pantallas
+**2. Pruebas del frontend.** Cero ahora mismo, y ya hay tres pantallas
 con lógica de presentación real (la máquina de estados pintada en
-`/home`, las traducciones exhaustivas de motivos en el panel).
+`/home`, las traducciones exhaustivas de motivos en el panel, y ahora
+el asistente de alta con sus tres pasos y sus estados incompletos).
 
 ### Fase 4 — Observabilidad
 - OpenTelemetry en los **6** servicios + Prometheus + Grafana
@@ -323,12 +343,6 @@ con lógica de presentación real (la máquina de estados pintada en
 ### Fase 6 — Anti-spoofing
 Detección de vida. El punto de enganche es la votación multi-frame, que
 ya acumula frames consecutivos.
-
-### Pendiente menor pero acordado
-Asignar el rol **en el alta de la persona** (hoy solo por API o con
-`scripts/assign-role.mjs`). Lo estándar en la industria es que el alta
-sea un onboarding: datos → rol → captura del rostro. Una persona sin rol
-es un registro inútil.
 
 ---
 

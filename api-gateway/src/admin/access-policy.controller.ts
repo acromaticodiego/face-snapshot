@@ -11,9 +11,25 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { z } from 'zod';
 
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AccessServiceClient } from '../proxy/service-clients';
 import { AdminAuthGuard } from './admin-auth.guard';
+
+/**
+ * El Access Service vuelve a validar esto por su cuenta, y debe
+ * seguir haciéndolo: es la autoridad sobre quién puede pasar y no
+ * puede fiarse de quien le llama. Aquí se valida igualmente porque el
+ * Gateway es la frontera con el exterior, y un `roleId` que no es un
+ * UUID tiene que morir en el borde y no viajar hacia dentro para
+ * volver como el error de un servicio interno.
+ */
+const AssignRoleSchema = z.object({
+  roleId: z.string().uuid(),
+  /** ISO 8601. Sin valor, la asignación no caduca. */
+  validUntil: z.string().datetime().optional(),
+});
 
 /**
  * Administración del dominio de acceso: sedes, roles y asignaciones.
@@ -50,7 +66,8 @@ export class AdminAccessPolicyController {
   @ApiOperation({ summary: 'Asigna un rol a una persona' })
   assignRole(
     @Param('personId', ParseUUIDPipe) personId: string,
-    @Body() body: { roleId?: string; validUntil?: string },
+    @Body(new ZodValidationPipe(AssignRoleSchema))
+    body: z.infer<typeof AssignRoleSchema>,
   ) {
     return this.access.assignRole(personId, body);
   }

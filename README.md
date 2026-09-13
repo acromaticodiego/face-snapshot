@@ -365,7 +365,7 @@ backend_detector/
 ├── frontend/                 React + Vite + TypeScript
 │   └── src/
 │       ├── pages/            autenticación, bienvenida, administración
-│       ├── components/       visor, cajas, diálogo de captura, UI
+│       ├── components/       visor, cajas, asistente de alta, UI
 │       ├── hooks/            cámara y bucle de autenticación
 │       └── lib/              cliente de API
 │
@@ -578,18 +578,54 @@ aparece.
 
 ## Cómo registrar una persona
 
-1. Inicia sesión y entra en **http://localhost:5173/admin/faces**.
-2. Escribe el nombre (y opcionalmente un identificador) y pulsa *Crear*.
-3. Se abre la captura automáticamente. Colócate de frente, con buena luz.
-4. Pulsa *Capturar*, revisa la imagen y pulsa *Registrar*.
-5. El backend detecta el rostro, genera el vector y lo asocia a la
-   persona. **La fotografía se descarta.**
+El alta es un asistente de **tres pasos**, y los tres hacen falta:
 
-El registro se rechaza si: no hay rostro, hay más de uno, la calidad es
-baja, o el rostro aparece cortado. Cada rechazo indica el motivo.
+1. Inicia sesión y entra en **http://localhost:5173/admin/faces**.
+2. Pulsa *Nueva alta*.
+3. **Datos.** Nombre y, opcionalmente, un identificador.
+4. **Rol.** Se elige de la lista, que muestra debajo de cada rol las
+   zonas y horarios que habilita: lo que decide si alguien pasa no es
+   el nombre del rol, son sus permisos.
+5. **Rostro.** Colócate de frente y con buena luz, pulsa *Capturar*,
+   revisa la imagen y pulsa *Registrar*. El backend detecta el rostro,
+   genera el vector y lo asocia a la persona. **La fotografía se
+   descarta.**
+
+El registro del rostro se rechaza si: no hay rostro, hay más de uno, la
+calidad es baja, o el rostro aparece cortado. Cada rechazo indica el
+motivo.
 
 Puedes registrar varios rostros por persona (distintas condiciones de
 luz o gafas) para mejorar el reconocimiento.
+
+### Por qué el rol va en el alta, y no aparte
+
+Una persona sin rol es un **registro inútil**: el sistema la reconoce y
+no la deja pasar por ninguna puerta. Cuando el alta solo pedía el
+nombre, eso pasaba sin que nadie se enterase, y `NO_ROLE_ASSIGNED` se
+convirtió en la segunda causa de denegación del despliegue.
+
+Dar de alta a alguien son tres escrituras en **dos servicios** —la
+identidad vive en el Face Service y el rol en el Access Service— y no
+hay ninguna transacción que las abarque. La respuesta no es montar una
+transacción distribuida para tres llamadas, sino hacer el estado
+incompleto **visible y retomable**:
+
+- La lista marca en ámbar a quien le falte el rol o el rostro.
+- El botón de cada fila lleva **al paso que le falta**, no siempre a la
+  captura.
+- El rostro va el último a propósito: es el paso lento y el que más
+  falla, así que una interrupción deja como mucho a alguien creado y con
+  rol, que es un estado visible y que se retoma en un clic.
+
+Lo que **no** se hizo es exigir el rol en el Face Service. Obligaría a
+que el servicio de identidades llamase al de acceso, invirtiendo la
+única dirección de dependencia que hoy está limpia. Un rol es una
+decisión del dominio de acceso; el Face Service no tiene por qué saber
+que existen.
+
+Queda una consecuencia asumida: **por API todavía se puede crear a
+alguien sin rol.** Es el asistente quien lo exige, no el servidor.
 
 ---
 
@@ -681,9 +717,9 @@ propio inicio de sesión.
 |---|---|---|
 | `POST` | `/admin/auth/login` | Inicia sesión, devuelve el token |
 | `GET` | `/admin/auth/me` | Comprueba el token y devuelve el administrador |
-| `GET` | `/admin/persons` | Lista personas (`?search=`, `?skip=`, `?take=`) |
+| `GET` | `/admin/persons` | Lista personas **con su rol** (`?search=`, `?skip=`, `?take=`) |
 | `POST` | `/admin/persons` | Crea una persona |
-| `GET` | `/admin/persons/:id` | Consulta una persona |
+| `GET` | `/admin/persons/:id` | Consulta una persona con su rol |
 | `PATCH` | `/admin/persons/:id` | Cambia nombre o estado |
 | `DELETE` | `/admin/persons/:id` | Elimina y **borra sus vectores** |
 | `POST` | `/admin/persons/:id/faces` | Enrola un rostro (multipart) |
@@ -691,6 +727,8 @@ propio inicio de sesión.
 | `GET` | `/admin/sites` | Sedes, zonas y puntos de acceso |
 | `GET` | `/admin/roles` | Roles y qué permite cada uno |
 | `POST` | `/admin/persons/:id/roles` | Asigna un rol |
+| `DELETE` | `/admin/persons/:id/roles/:roleId` | Retira un rol |
+| `GET` | `/admin/persons/:id/roles` | Roles asignados a una persona |
 | `GET` | `/admin/presence` | Quién consta dentro y el aforo por zona |
 | `GET` | `/admin/shifts` | Jornadas abiertas y desglose por estado |
 | `GET` | `/admin/shifts/:personId/timeline` | Línea de tiempo de una jornada |
@@ -700,6 +738,22 @@ propio inicio de sesión.
 | `GET` | `/health` | Estado de todos los servicios |
 
 **Ningún endpoint devuelve embeddings.**
+
+> **El listado de personas es el único sitio donde el Gateway compone
+> dos servicios.** La identidad viene del Face Service y el rol del
+> Access Service, porque son dominios distintos, pero quien administra
+> necesita verlos juntos para detectar a quien no puede pasar por
+> ninguna puerta. Unir dos lecturas para una pantalla es trabajo de
+> Gateway; decidir con ellas, no, y aquí no se decide nada.
+>
+> El rol es un dato **accesorio** del listado, y se trata como tal: la
+> consulta lleva un plazo de 2 s propio —mucho más corto que el del
+> resto del cliente— y, si el Access Service no responde, el campo
+> `roles` vuelve como `null` en lugar de romper la pantalla. `null` no
+> es lo mismo que `[]`: lo primero es «no se pudo preguntar» y la
+> interfaz lo pinta apagado; lo segundo es «no tiene ningún rol» y sí
+> es un aviso. Pintarlos igual mandaría al administrador a perseguir un
+> problema que no existe.
 
 ---
 

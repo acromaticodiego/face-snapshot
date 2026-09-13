@@ -200,12 +200,38 @@ export interface AccessLogRow {
   createdAt: string;
 }
 
+/** Un rol asignado a una persona. */
+export interface PersonRole {
+  roleId: string;
+  roleName: string;
+}
+
+/** Un rol del catalogo, con las zonas y horarios que habilita. */
+export interface Role {
+  id: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  permissions: { zone: string; schedule: string }[];
+}
+
 export interface Person {
   id: string;
   fullName: string;
   externalId: string | null;
   status: 'ACTIVE' | 'SUSPENDED';
   enrolledFacesCount: number;
+  /**
+   * Roles asignados, o `null` si no se pudieron consultar.
+   *
+   * Los roles viven en otro servicio que el Gateway consulta aparte,
+   * asi que `null` significa «no se sabe» y la lista vacia significa
+   * «no tiene ninguno». La diferencia importa: lo segundo es una
+   * persona que no puede pasar por ninguna puerta y hay que arreglar;
+   * lo primero es una averia y pintarla como lo segundo mandaria al
+   * administrador a perseguir un problema inexistente.
+   */
+  roles: PersonRole[] | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -345,6 +371,30 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
+    });
+  },
+
+  async listRoles(): Promise<{ items: Role[] }> {
+    return request('/admin/roles');
+  },
+
+  async assignRole(
+    personId: string,
+    roleId: string,
+  ): Promise<PersonRole & { id: string }> {
+    return request(`/admin/persons/${personId}/roles`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roleId }),
+    });
+  },
+
+  async revokeRole(
+    personId: string,
+    roleId: string,
+  ): Promise<{ revoked: boolean }> {
+    return request(`/admin/persons/${personId}/roles/${roleId}`, {
+      method: 'DELETE',
     });
   },
 
