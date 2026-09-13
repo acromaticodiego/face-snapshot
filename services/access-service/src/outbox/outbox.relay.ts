@@ -6,6 +6,15 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  context,
+  propagation,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from '@opentelemetry/api';
+import { suppressTracing } from '@opentelemetry/core';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT, type OptionalRedis } from '../redis/redis.module';
@@ -42,7 +51,10 @@ interface PendingRow {
   type: string;
   payload: unknown;
   attempts: number;
+  trace_context: string | null;
 }
+
+const tracer = trace.getTracer('outbox-relay');
 
 @Injectable()
 export class OutboxRelay implements OnModuleInit, OnModuleDestroy {
@@ -100,7 +112,20 @@ export class OutboxRelay implements OnModuleInit, OnModuleDestroy {
     this.running = true;
 
     try {
-      const published = await this.publishBatch();
+      // EL SONDEO NO SE TRAZA.
+      //
+      // Esta vuelta ocurre cada segundo, tenga o no trabajo, y su
+      // consulta a PostgreSQL generaria un span raiz cada vez: unas
+      // ochenta y seis mil trazas al dia que no cuentan nada. Enterrar
+      // las trazas que importan bajo el ruido de un temporizador es
+      // una forma segura de que nadie vuelva a mirar Tempo.
+      //
+      // Se suprime aqui y se abre un span de verdad solo cuando hay
+      // filas que publicar, dentro de `publishBatch`.
+      const published = await context.with(
+        suppressTracing(context.active()),
+        () => this.publishBatch(),
+      );
 
       // La purga no va en cada vuelta: es un DELETE sobre el histórico
       // y no hay ninguna prisa por hacerlo cada segundo.
@@ -128,7 +153,7 @@ export class OutboxRelay implements OnModuleInit, OnModuleDestroy {
       // `SKIP LOCKED` es lo que permite varias réplicas: cada una toma
       // un lote distinto en vez de pelearse por el mismo.
       const pending = await tx.$queryRaw<PendingRow[]>`
-        SELECT id, type, payload, attempts
+        SELECT id, type, payload, attempts, trace_context
         FROM access_svc.outbox_events
         WHERE published_at IS NULL
           AND attempts < ${this.maxAttempts}
@@ -149,14 +174,7 @@ export class OutboxRelay implements OnModuleInit, OnModuleDestroy {
           // exacta del evento, y añadir un campo obligaría a tocar el
           // consumidor. Con JSON, el contrato vive en un solo sitio:
           // access-events.ts.
-          await redis.xadd(
-            ACCESS_EVENTS_STREAM,
-            '*',
-            'type',
-            row.type,
-            'data',
-            JSON.stringify(row.payload),
-          );
+          await this.publicarConTraza(redis, row);
           publishedIds.push(row.id);
         } catch (error) {
           // Un fallo se anota en la propia fila en vez de abortar el
@@ -186,6 +204,107 @@ export class OutboxRelay implements OnModuleInit, OnModuleDestroy {
 
       return publishedIds.length;
     });
+  }
+
+  /**
+   * Publica una fila en el bus, continuando la traza que la origino.
+   *
+   * COMO SE COSE LA TRAZA A TRAVES DEL BUS
+   * ──────────────────────────────────────
+   * La fila guarda el `traceparent` de la peticion que concedio el
+   * acceso. Aqui se recupera ese contexto, se abre un span de
+   * publicacion colgando de el, y se inyecta el contexto de ESE span
+   * en el propio mensaje de Redis. El consumidor lo extrae al otro
+   * lado. El resultado es una sola traza que va del frame hasta la
+   * transicion de turno.
+   *
+   * QUE SE ESTA ACEPTANDO A CAMBIO
+   * ──────────────────────────────
+   * La convencion de OpenTelemetry para mensajeria recomienda un
+   * ENLACE en lugar de padre-hijo cuando hay lotes o abanico, porque
+   * un consumidor puede procesar mensajes de muchas trazas a la vez.
+   * Aqui la relacion es uno a uno y una traza conectada vale mucho
+   * mas: ensena de un vistazo que el camino asincrono existe de
+   * verdad. La contrapartida es que la traza dura mas que la peticion
+   * HTTP que la abrio, y el hueco que se ve en medio NO es latencia:
+   * es el intervalo de sondeo del relay.
+   *
+   * Si la fila no trae contexto —telemetria apagada cuando se
+   * escribio, o una fila anterior a esta version— se publica igual y
+   * sin span. Un paso no puede quedarse sin llegar al Shift Service
+   * por un motivo de observabilidad.
+   */
+  private async publicarConTraza(
+    redis: NonNullable<OptionalRedis>,
+    row: PendingRow,
+  ): Promise<void> {
+    const publicar = async (): Promise<void> => {
+      const portador: Record<string, string> = {};
+      propagation.inject(context.active(), portador);
+
+      // El contexto va en un campo SEPARADO del payload a proposito:
+      // es metadato del transporte, no parte del contrato del evento,
+      // y meterlo dentro del JSON obligaria al validador del consumidor
+      // a conocerlo.
+      //
+      // Y solo se anade si tiene valor. Un campo vacio en el bus no es
+      // inofensivo: el consumidor tendria que distinguir "no viene" de
+      // "viene vacio", y ocupa sitio en cada mensaje de un stream
+      // persistido en disco para decir nada.
+      const campos: string[] = ['type', row.type, 'data', JSON.stringify(row.payload)];
+      if (portador.traceparent) {
+        campos.push('traceparent', portador.traceparent);
+      }
+
+      await redis.xadd(ACCESS_EVENTS_STREAM, '*', ...campos);
+    };
+
+    if (!row.trace_context) {
+      await publicar();
+      return;
+    }
+
+    // Se extrae desde ROOT_CONTEXT y NO desde el contexto activo, y
+    // esto no es un detalle de estilo. El sondeo de `tick` corre con
+    // el trazado suprimido para no generar una traza por segundo, y
+    // esa supresion se HEREDA: derivando de aqui el contexto activo,
+    // el span de publicacion nacia sin registrar y el tramo asincrono
+    // no aparecia en ninguna traza. Partiendo de la raiz, el unico
+    // padre de este span es el que viene guardado en la fila, que es
+    // justo lo que se quiere.
+    const padre = propagation.extract(ROOT_CONTEXT, {
+      traceparent: row.trace_context,
+    });
+
+    await tracer.startActiveSpan(
+      `${ACCESS_EVENTS_STREAM} publish`,
+      {
+        kind: SpanKind.PRODUCER,
+        attributes: {
+          'messaging.system': 'redis',
+          'messaging.operation.name': 'publish',
+          'messaging.destination.name': ACCESS_EVENTS_STREAM,
+          'messaging.message.id': row.id,
+          'event.type': row.type,
+          // Cuantas vueltas tardo en salir. Un numero alto aqui es una
+          // averia del bus que de otro modo solo se ve mirando la
+          // tabla a mano.
+          'outbox.attempts': row.attempts,
+        },
+      },
+      padre,
+      async (span) => {
+        try {
+          await publicar();
+        } catch (error) {
+          span.recordException(error as Error);
+          span.setStatus({ code: SpanStatusCode.ERROR });
+          throw error;
+        } finally {
+          span.end();
+        }
+      },
+    );
   }
 
   /**

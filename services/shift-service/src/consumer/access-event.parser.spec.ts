@@ -1,4 +1,7 @@
-import { parseAccessGrantedEvent } from './access-event.parser';
+import {
+  parseAccessGrantedEvent,
+  traceparentDelMensaje,
+} from './access-event.parser';
 
 /**
  * El bus es una frontera entre procesos que se despliegan por
@@ -72,5 +75,59 @@ describe('parseAccessGrantedEvent', () => {
     );
 
     expect(event?.anomaly).toBe('ANTIPASSBACK_SOFT');
+  });
+});
+
+/**
+ * El contexto de traza cruza el bus en un campo aparte del payload.
+ *
+ * Estas pruebas fijan justo eso: que leerlo no depende de la posicion
+ * del campo, y sobre todo que un mensaje SIN contexto es normal y no un
+ * error. Todo lo publicado antes de la Fase 4, y todo lo que se
+ * publique con la telemetria apagada, llega sin el; si esto devolviera
+ * algo distinto de `null`, el consumidor intentaria colgar el span de
+ * un padre inventado.
+ */
+describe('traceparentDelMensaje', () => {
+  const TRACEPARENT =
+    '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+
+  it('lee el traceparent venga en la posicion que venga', () => {
+    expect(
+      traceparentDelMensaje([
+        'type',
+        'AccessGranted',
+        'data',
+        '{}',
+        'traceparent',
+        TRACEPARENT,
+      ]),
+    ).toBe(TRACEPARENT);
+
+    expect(
+      traceparentDelMensaje([
+        'traceparent',
+        TRACEPARENT,
+        'type',
+        'AccessGranted',
+      ]),
+    ).toBe(TRACEPARENT);
+  });
+
+  it('devuelve null si el mensaje no lo trae', () => {
+    // Es el caso de todo lo publicado con la telemetria apagada. Tiene
+    // que procesarse igual, sin span y sin ruido.
+    expect(traceparentDelMensaje(['type', 'AccessGranted', 'data', '{}'])).toBeNull();
+  });
+
+  it('trata un traceparent vacio como ausente', () => {
+    expect(traceparentDelMensaje(['traceparent', ''])).toBeNull();
+  });
+
+  it('no se cae con una lista de campos impar', () => {
+    // Un mensaje malformado no puede tumbar al consumidor: bloquearia
+    // la cola detras de el.
+    expect(traceparentDelMensaje(['traceparent'])).toBeNull();
+    expect(traceparentDelMensaje([])).toBeNull();
   });
 });

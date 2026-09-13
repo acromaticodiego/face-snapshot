@@ -21,6 +21,8 @@ interface FakeRow {
   attempts: number;
   publishedAt: Date | null;
   lastError: string | null;
+  /** Nombre de columna, no de propiedad: el relay lee por $queryRaw. */
+  trace_context: string | null;
 }
 
 /** Doble de Prisma con solo lo que el relay usa. */
@@ -75,6 +77,7 @@ function row(id: string, overrides: Partial<FakeRow> = {}): FakeRow {
     attempts: 0,
     publishedAt: null,
     lastError: null,
+    trace_context: null,
     ...overrides,
   };
 }
@@ -91,6 +94,62 @@ describe('OutboxRelay', () => {
     expect(published).toBe(2);
     expect(redis.xadd).toHaveBeenCalledTimes(2);
     expect(rows.every((r) => r.publishedAt !== null)).toBe(true);
+  });
+
+  /**
+   * El contexto de traza NO forma parte del evento.
+   *
+   * Un mensaje publicado sin telemetría tiene que salir exactamente
+   * igual que antes de la Fase 4: mismos campos y ninguno vacío. Un
+   * campo vacío en el bus obligaría al consumidor a distinguir "no
+   * viene" de "viene vacío", y ocuparía sitio en cada mensaje de un
+   * stream que se persiste en disco para no decir nada.
+   */
+  it('no añade campo de traza cuando no hay telemetría', async () => {
+    const rows = [row('a', { payload: { eventId: 'a' } })];
+    const prisma = fakePrisma(rows);
+    const redis = { xadd: jest.fn(async () => '1-0') };
+
+    await new OutboxRelay(prisma, redis as never, config()).tick();
+
+    expect(redis.xadd).toHaveBeenCalledWith(
+      'access.events',
+      '*',
+      'type',
+      'AccessGranted',
+      'data',
+      JSON.stringify({ eventId: 'a' }),
+    );
+  });
+
+  /**
+   * Y una fila que sí guardó contexto se publica igual de bien.
+   *
+   * Lo que se comprueba aquí no es el contenido del `traceparent` —eso
+   * lo decide el SDK—, sino que guardar un contexto no rompe la
+   * publicación ni la marca de publicado. Es el caso que de verdad
+   * preocupa: que la observabilidad impida que un paso llegue al Shift
+   * Service.
+   */
+  it('publica igual una fila que trae contexto de traza', async () => {
+    const rows = [
+      row('a', {
+        trace_context:
+          '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+      }),
+    ];
+    const prisma = fakePrisma(rows);
+    const redis = { xadd: jest.fn(async () => '1-0') };
+
+    const published = await new OutboxRelay(
+      prisma,
+      redis as never,
+      config(),
+    ).tick();
+
+    expect(published).toBe(1);
+    expect(redis.xadd).toHaveBeenCalledTimes(1);
+    expect(rows[0].publishedAt).not.toBeNull();
   });
 
   it('envía el evento completo en un solo campo JSON', async () => {

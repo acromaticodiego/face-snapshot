@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { context, propagation } from '@opentelemetry/api';
 import { randomUUID } from 'node:crypto';
 
 import type { AccessGrantedEvent } from '../outbox/access-events';
@@ -150,6 +151,14 @@ export class PassageService {
             // Se guarda completo: quien lo consuma no debe tener que
             // volver a preguntar nada.
             payload: { ...event },
+            // El contexto de traza se captura AQUI porque este es el
+            // unico momento en el que la peticion original sigue viva.
+            // El relay publica hasta un segundo despues y en otro
+            // proceso; sin esta columna, el tramo asincrono seria una
+            // traza huerfana y se perderia justo lo que se quiere
+            // ensenar: que el paso por la puerta y las horas
+            // computadas son el mismo hecho.
+            traceContext: traceparentActual(),
           },
         });
       }
@@ -164,6 +173,20 @@ export class PassageService {
       return { sessionId: session.id, expiresAt: session.expiresAt };
     });
   }
+}
+
+/**
+ * El `traceparent` de la petición en curso, o `null` si no hay
+ * telemetría activa.
+ *
+ * Se usa el inyector configurado en lugar de leer el span a mano para
+ * que, si algún día se cambia el formato de propagación, esto siga
+ * escribiendo lo que el resto del sistema sabe leer.
+ */
+function traceparentActual(): string | null {
+  const portador: Record<string, string> = {};
+  propagation.inject(context.active(), portador);
+  return portador.traceparent ?? null;
 }
 
 /**

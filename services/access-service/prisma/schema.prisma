@@ -463,6 +463,17 @@ model OutboxEvent {
   attempts  Int     @default(0)
   lastError String? @map("last_error") @db.VarChar(500)
 
+  /// Cabecera `traceparent` (W3C Trace Context) de la peticion que
+  /// genero el evento, escrita en la MISMA transaccion. Es lo que
+  /// permite que la traza del reconocimiento y la del consumidor sean
+  /// la misma, en lugar de dos trazas huerfanas separadas por el
+  /// segundo que tarda el relay en recoger la fila.
+  ///
+  /// NULL si no habia telemetria activa. El relay publica igual: la
+  /// observabilidad no puede ser requisito para que un paso llegue al
+  /// Shift Service.
+  traceContext String? @map("trace_context") @db.VarChar(64)
+
   @@index([createdAt])
   @@index([aggregateId])
   @@map("outbox_events")
