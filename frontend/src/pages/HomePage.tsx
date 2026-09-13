@@ -4,6 +4,7 @@ import {
   DoorOpen,
   LayoutDashboard,
   LogOut,
+  Mic,
   Pause,
   Play,
   Sandwich,
@@ -12,6 +13,7 @@ import {
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
+import { PendingIncidents } from '@/components/PendingIncidents';
 import {
   GlassCard,
   GlowBadge,
@@ -216,6 +218,11 @@ export function HomePage() {
             </p>
           )}
 
+          {/* Lo que dejó sin cerrar el turno anterior. Va aquí arriba y
+              no al final porque es lo primero que hay que saber al
+              empezar a trabajar, y esta pantalla se mira dos segundos. */}
+          <PendingIncidents />
+
           {/* ── Línea de tiempo ──────────────────────────────── */}
           {today && today.entries.length > 0 && (
             <section className="mt-7">
@@ -280,6 +287,19 @@ export function HomePage() {
                   </p>
                 </>
               )}
+
+              {/* Dictar el parte NO es cambiar de estado: es dejar
+                  constancia de lo que ha pasado. Por eso está
+                  disponible en cualquier estado con jornada abierta,
+                  incluido EN_PAUSA, al contrario que los descansos. */}
+              <VaultButton
+                tone="glass"
+                className="mt-4 w-full"
+                onClick={() => navigate('/relevo', { state })}
+                icon={<Mic className="h-4 w-4" />}
+              >
+                Dictar parte de relevo
+              </VaultButton>
             </section>
           )}
 

@@ -1145,12 +1145,41 @@ defendible aquel diseño.
   evidencia de lo que se sabía entonces; si se compusiera al leerlo,
   diría cosas distintas según el día.
 
+### Cómo se dicta y se firma
+
+En `/relevo`, a la que se llega desde `/home` con la jornada abierta.
+Grabas, el sistema propone un resumen y una lista de incidencias, tú las
+corriges, y firmas.
+
+**Se llega al final sin micrófono y sin modelo.** Si la transcripción no
+está disponible se escribe a mano; si el estructurador no responde,
+queda la transcripción y las incidencias se añaden a mano. Un vigilante
+que termina su turno no puede irse sin dejar constancia porque un
+proveedor externo esté caído.
+
+**La transcripción se muestra y no se edita.** El resumen y las
+incidencias sí: son una interpretación. El texto es lo que se dijo, y es
+lo que zanja una discusión dentro de seis meses.
+
+**Cada incidencia firmada declara de dónde salió** —aceptada tal cual,
+corregida, o escrita a mano—. Solo el cliente puede saberlo, porque el
+servidor no ve la propuesta original. Es el dato con el que dentro de
+unos meses se podrá responder si el modelo aporta algo o cuesta más
+trabajo del que ahorra.
+
+**Y una cita que el modelo no pudo respaldar se ve ANTES de firmar**,
+marcada en la propia incidencia. Es lo único que este sistema sabe
+detectar sobre la invención de un modelo, y viaja desde el Voice
+Service hasta la pantalla.
+
 ### Lo que necesita quien entra al turno
 
 `GET /me/logbook/pending` devuelve lo que quedó sin cerrar. Es la
 consulta que justifica tener una bitácora: sin ella habría que repasar el
 turno anterior entero para enterarse de que el ascensor sigue roto. No
-filtra por persona a propósito, porque lo pendiente lo dejó otro.
+filtra por persona a propósito, porque lo pendiente lo dejó otro. Sale
+en `/home` nada más identificarse, que es el momento exacto en que hace
+falta.
 
 Ver [ADR 0012](docs/adr/0012-bitacora-de-relevo.md).
 
@@ -1394,6 +1423,7 @@ node scripts/capture-attack-set.mjs   # graba el conjunto de ataque (ver limitac
 | Política de acceso, votación, anti-passback, umbral, outbox, evento | 94 |
 | Máquina de turnos y parser del bus | 44 |
 | Frontend: reglas de `/home` y del listado de personas | 33 |
+| Frontend: qué se firma en un parte de relevo | 35 |
 
 Las dos primeras filas son nuevas y tapan una asimetría que el proyecto
 arrastraba: se probaba a fondo la **lógica de dominio** y no se probaba

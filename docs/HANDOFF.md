@@ -444,9 +444,13 @@ de tiempo.
 
 ### LO SIGUIENTE, POR ORDEN
 
-**1. Fase 5, voz e IA.** El `voice-service`, el `logbook-service` y el
-servidor MCP están hechos y verificados contra el stack. Falta **solo la
-interfaz**. Detalle abajo.
+**1. ~~Fase 5, voz e IA~~ · COMPLETA.** `voice-service`,
+`logbook-service`, servidor MCP e interfaz, verificados contra el stack.
+Detalle abajo.
+
+**2. Sustituir la señal de detección de vida**, que es lo único que
+queda del plan. La herramienta para reunir el conjunto de ataque ya
+existe: `node scripts/capture-attack-set.mjs`.
 
 **2. Conseguir ataques reales y calibrar la detección de vida**, que es
 lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
@@ -572,16 +576,42 @@ incidencias pendientes del parte firmado.
 
     cd services/mcp-server && npm ci && npm run build && npm run smoke
 
-**LO QUE FALTA DE LA FASE 5 — solo la interfaz:**
+### La interfaz también está · FASE 5 COMPLETA
 
-Falta la pantalla para dictar, revisar el borrador y firmarlo, más la
-vista de lo pendiente al entrar al turno. **Todos los endpoints están
-puestos y probados**: `POST /me/logbook/draft`, `POST /me/logbook`,
-`GET /me/logbook`, `GET /me/logbook/pending` y `GET /admin/logbook`.
+`/relevo` para dictar, revisar y firmar; y en `/home`, lo que dejó
+pendiente el turno anterior nada más identificarse.
 
-Cuidado al construirla con la restricción del panel que ya existe: ocupa
-el alto de la ventana y no crece, así que un bloque nuevo va DENTRO de
-una columna, no debajo.
+**Cuatro reglas viven solo en el frontend**, y tienen tests:
+
+1. **Sin jornada abierta no se firma.** De ahí sale el `siteId` y el
+   inicio del periodo. Para esto se añadió `siteId` a `/me/shift`: el
+   terminal conoce su puerta, no su sede.
+2. **Se llega al final sin micrófono y sin modelo.** Sin transcripción
+   se escribe a mano; sin estructurador queda la transcripción y las
+   incidencias se añaden a mano.
+3. **Una cita sin respaldo se ve ANTES de firmar.**
+4. **Cada incidencia declara de dónde salió** —aceptada, corregida o
+   añadida a mano—. Solo el cliente lo sabe.
+
+La lógica está en `frontend/src/lib/handover.ts`, aparte del JSX para
+poder probarla sin simular un micrófono. 35 casos nuevos; el frontend
+pasa de 33 a 68.
+
+**Lo que la verificación por mutación destapó, y conviene saber.** Dos
+de esos tests afirmaban más de lo que comprobaban: uno decía cubrir una
+copia defensiva que **no hacía ningún trabajo** —el spread de al lado ya
+copiaba—, y otro daba por probado un invariante que pasaba por
+casualidad. Están corregidos, y el comentario que explicaba la
+protección inexistente también. Si añades tests aquí, rómpelos antes de
+creerlos.
+
+**La transcripción no se edita, a propósito.** El resumen y las
+incidencias sí. El texto es lo que se dijo y es lo que zanja una
+discusión; la estructura es una interpretación.
+
+**FASE 5 COMPLETA.** Lo siguiente es el paso 2: sustituir la señal de
+detección de vida, para lo que ya existe
+`node scripts/capture-attack-set.mjs`.
 
 ### LA DETECCION DE VIDA NO FUNCIONA — medido con datos reales
 

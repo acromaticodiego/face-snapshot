@@ -52,6 +52,7 @@ const resumen = (state: ShiftState): ShiftSummary => ({
   endedAt: null,
   workedSeconds: 24_120,
   breakSeconds: 1_800,
+  siteId: state === 'FUERA' ? null : '11111111-1111-4111-8111-111111111111',
   siteName: 'Sede Principal',
 });
 
