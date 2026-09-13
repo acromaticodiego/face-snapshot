@@ -14,9 +14,14 @@ ArcFace, y búsqueda por similitud en PostgreSQL con pgvector.
    - **Verde** → persona registrada, se muestra su nombre.
    - **Roja** → rostro desconocido.
 3. Tras confirmar la identidad en varios fotogramas seguidos, concede el
-   acceso y redirige a la pantalla de bienvenida.
+   acceso y redirige a **`/home`**, donde la persona ve su estado de
+   turno, la hora de entrada, las horas acumuladas y la línea de tiempo
+   de su jornada.
 4. Una sección de administración permite registrar personas, capturar su
-   rostro y eliminarlas.
+   rostro y eliminarlas, y ofrece un **panel de operación** con el aforo
+   en tiempo real, la actividad de las puertas y dos análisis: la
+   distribución de similitudes frente al umbral y el mapa de actividad
+   por hora.
 
 **La decisión de acceso se toma íntegramente en el servidor.** El
 frontend solo dibuja lo que el backend le dice.
@@ -272,6 +277,40 @@ se le computan a alguien**. La outbox lo convierte en "al menos una
 vez", que es la garantía que se quiere: entre repetir y perder, se
 repite; y repetir es inofensivo porque el consumidor descarta lo que ya
 vio.
+
+---
+
+## El panel de operación
+
+En `/admin/dashboard`, tras iniciar sesión como administrador. Muestra
+datos de toda la plantilla, así que no basta con haberse identificado
+ante la cámara.
+
+**Aforo y actividad.** Personas dentro (personas distintas, no pasos),
+desglose por estado de turno y por zona, actividad reciente de las
+puertas y denegaciones agrupadas por motivo. Se refresca cada cinco
+segundos.
+
+Las denegaciones se colorean por familia, y esa separación es la razón
+de ser del enum: *no se reconoció a la persona* apunta a la cámara, la
+luz o el enrolamiento; *reconocida pero sin permiso* apunta a los roles
+o al horario. Son incidentes distintos y se investigan en sitios
+distintos.
+
+**Distribución de similitudes.** Las dos nubes sobre el mismo eje, con
+el umbral dibujado encima. Es lo que convierte el 0.38 en una decisión
+con datos del despliegue en lugar de un número heredado de fotos de
+archivo, y lo que destapó que el margen real es cuatro veces más
+estrecho de lo medido en su día (ver limitación 4).
+
+> El panel avisa en pantalla de lo que este gráfico **no** puede decir:
+> tasas de error. Las dos nubes las separa el propio umbral que se
+> evalúa, así que jamás se verá solapamiento por mucho que lo haya.
+
+**Mapa de actividad por hora.** Día de la semana por hora, en la hora
+local de la sede. Enseña los picos de entrada y salida y, sobre todo, lo
+que no debería estar ahí: una celda donde se deniega casi todo se tiñe
+de rojo aunque tenga poca actividad.
 
 ---
 
@@ -655,6 +694,9 @@ propio inicio de sesión.
 | `GET` | `/admin/presence` | Quién consta dentro y el aforo por zona |
 | `GET` | `/admin/shifts` | Jornadas abiertas y desglose por estado |
 | `GET` | `/admin/shifts/:personId/timeline` | Línea de tiempo de una jornada |
+| `GET` | `/admin/stats/denials` | Denegaciones agrupadas por motivo |
+| `GET` | `/admin/stats/similarity` | Distribución de similitudes y margen del umbral |
+| `GET` | `/admin/stats/hourly` | Actividad por día y hora, en hora local de la sede |
 | `GET` | `/health` | Estado de todos los servicios |
 
 **Ningún endpoint devuelve embeddings.**
@@ -821,11 +863,34 @@ entrar, nunca menos—, así que se pierde eficiencia y no seguridad.
 Lo que **no** escala todavía es el consumidor del Shift Service: ver el
 punto 7.
 
-#### 4. Umbral sin calibrar con datos reales
+#### 4. El umbral va más ajustado de lo que parecía
 
-`0.38` es un valor conservador basado en la separación medida sobre las
-imágenes de prueba de InsightFace. **Debe calibrarse con rostros y
-cámara reales** antes de producción.
+`0.38` se eligió con la separación medida sobre las imágenes de prueba
+de InsightFace: **0.2552** entre las dos nubes. El panel de operación
+mide ahora esa misma separación con los accesos reales de este
+despliegue:
+
+| | Fotos de archivo (ADR 0003) | Despliegue real |
+|---|---|---|
+| Separación entre nubes | 0.2552 | **0.0641** |
+| Margen bajo el umbral | — | 0.0286 |
+| Margen sobre el umbral | — | 0.0355 |
+
+Es **cuatro veces menor**. El umbral sigue separando las dos nubes, pero
+con un margen de tres centésimas: una captura peor de lo normal puede
+cruzarlo en cualquiera de los dos sentidos.
+
+Lo que esto dice no es "cambia el número", sino que **el margen depende
+de la calidad de la captura** mucho más que del umbral, tal y como
+avisaba el ADR 0003. Subirlo dejaría gente fuera; bajarlo acerca a los
+desconocidos.
+
+**Importante sobre lo que este dato NO es.** De la auditoría no salen
+tasas de error, y el panel lo dice en pantalla: un intento se clasifica
+como reconocido o desconocido usando el propio umbral que se evalúa, así
+que las dos nubes salen partidas exactamente por él y jamás se verá
+solapamiento. Medir tasas de acierto exige datos etiquetados a mano, que
+es lo que hace `tests/test_recognition_quality.py` del Vision Service.
 
 #### 5. Embeddings sin cifrar en reposo
 
@@ -890,13 +955,15 @@ node scripts/ci-local.mjs        # reproduce el CI completo en local
 node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
 ```
 
-111 pruebas unitarias, todas sobre piezas que **deciden** algo:
+124 pruebas unitarias, todas sobre piezas que **deciden** algo o que
+**afirman** algo:
 
 | Qué | Dónde | Pruebas |
 |---|---|---|
 | Política de acceso (rol · zona · horario) | `access-service/src/policy` | 31 |
 | Anti-passback | `access-service/src/presence` | 19 |
 | Votación multi-frame | `access-service/src/verification` | 12 |
+| Análisis del umbral | `access-service/src/stats` | 13 |
 | Contrato del evento de acceso | `access-service/src/presence` | 9 |
 | Relay de la outbox | `access-service/src/outbox` | 8 |
 | Máquina de estados de turno | `shift-service/src/shifts` | 25 |
