@@ -44,7 +44,9 @@ una cámara, el sistema decide si puede entrar según su rol, la zona y
 el horario, y registra el acceso.
 
 Arquitectura de microservicios, funcionando de extremo a extremo.
-**Fases 1, 2 y 3 completadas.** La siguiente es la 4: observabilidad.
+**Fases 1, 2 y 3 completadas.** Lo siguiente está en la sección
+«LO SIGUIENTE, POR ORDEN»: asignar el rol en el alta, y después la
+Fase 4 (observabilidad).
 
 ---
 
@@ -116,6 +118,22 @@ puntos nativos de SCRFD, no de documentación.
   Exige cuenta de administración porque muestra datos de terceros.
 - Tres endpoints de estadísticas nuevos en el Access Service, agregados
   en SQL.
+- **Descansos declarados por la persona**: baño, café o almuerzo no
+  cruzan ningún lector, y sin poder declararlos la jornada contaría
+  como trabajado todo el rato dentro del edificio. `POST
+  /me/shift/break` y `/me/shift/resume`.
+
+**Restricciones del panel que NO hay que romper.** Ocupa exactamente el
+alto de la ventana y no crece: tres columnas que desbordan *por dentro*
+si les hace falta. Un panel de operación que obliga a bajar es un panel
+cuya mitad inferior no mira nadie, y ahí estaban precisamente los dos
+análisis. Si añades un bloque, va dentro de una columna, no debajo.
+
+**Lo que un botón NO puede hacer.** Declarar un descanso sí; fichar la
+entrada o la salida, nunca. Eso lo decide el Access Service con una
+cara delante de una cámara, y un botón que abriera jornada convertiría
+el control de acceso en un adorno. Quien está `EN_PAUSA` —fuera del
+edificio— tampoco puede declarar nada: su vuelta la registra la puerta.
 
 **El hallazgo de esta fase.** El análisis del umbral con datos reales
 da **0.0641** de separación entre nubes, frente al 0.2552 que midió el
@@ -192,10 +210,10 @@ fallos**:
 
 1. **Sin anti-spoofing.** Una foto en un móvil pasaría la
    autenticación. El sistema no es apto para producción real.
-2. **Cobertura de tests desigual.** Hay 124 tests sobre las piezas que
+2. **Cobertura de tests desigual.** Hay 132 tests sobre las piezas que
    deciden o afirman algo: política de acceso (31), votación (12),
    anti-passback (19), análisis del umbral (13), contrato del evento
-   (9), relay de la outbox (8), máquina de turnos (25) y parser del
+   (9), relay de la outbox (8), máquina de turnos (33) y parser del
    evento (7). Todas son funciones puras o con dobles, así que corren
    en segundos y sin contenedores.
 
@@ -257,11 +275,38 @@ Sin librería de gráficos: el histograma son barras y el mapa de calor
 una cuadrícula, y tematizar Recharts para el cristal esmerilado era más
 código que dibujarlos.
 
+### LO SIGUIENTE, POR ORDEN
+
+**1. Asignar el rol en el alta de la persona.** Rápido y tapa un
+agujero real: hoy hay 12 personas registradas y solo 6 con rol. Las
+otras seis son registros inútiles —el sistema las reconoce y no las
+deja pasar—, y se nota en el propio panel: `NO_ROLE_ASSIGNED` es la
+segunda causa de denegación con 80 casos. Lo estándar en la industria
+es que el alta sea un onboarding: datos → rol → captura del rostro.
+
+**2. Fase 4, observabilidad.** El grueso del trabajo.
+
+**3. Pruebas del frontend.** Cero ahora mismo, y ya hay dos pantallas
+con lógica de presentación real (la máquina de estados pintada en
+`/home`, las traducciones exhaustivas de motivos en el panel).
+
 ### Fase 4 — Observabilidad
-- OpenTelemetry en los 5 servicios + Prometheus + Grafana
-- El objetivo concreto: una traza que muestre Gateway → Access → Face →
-  Vision con los tiempos de cada etapa. Es la captura más diferenciadora
-  para el post
+- OpenTelemetry en los **6** servicios + Prometheus + Grafana
+- El objetivo concreto: una traza que muestre
+
+  ```
+  Gateway → Access → Face → Vision → (decisión) → outbox → Redis → Shift
+  ```
+
+  con los tiempos de cada tramo. Es la captura más diferenciadora para
+  el post, y ahora vale más que cuando se escribió este plan: entonces
+  eran cuatro servicios síncronos, hoy hay seis y un camino asíncrono
+  en medio. Una traza que cruce el bus demuestra que la arquitectura de
+  eventos no es un diagrama.
+- Responde además una pregunta que hoy no se puede contestar: **cuánto
+  tarda de verdad un frame**, y si el cuello de botella es el detector,
+  el embedding o pgvector. Importa porque el umbral va ajustado y no se
+  sabe cuánto margen hay para gastar en una captura mejor.
 
 ### Fase 5 — Voz e IA
 - `voice-service` (Python, sin estado, simétrico al vision-service):
@@ -335,3 +380,23 @@ cd services/shift-service && npx prisma migrate deploy
 - Verifica siempre lo que afirmes sobre los modelos. El primer
   `rostros.pt` que entregó el usuario resultó ser un detector de tráfico;
   se descubrió inspeccionando el archivo en lugar de asumir.
+- **No midas tasas de error con datos que el propio umbral ha
+  clasificado.** Se intentó y salían cero siempre. Está explicado en
+  `access-service/src/stats/threshold.analysis.ts`; no lo "arregles"
+  volviendo a contarlas.
+- **Un `/health` nunca debe poder colgarse.** El del Shift Service lo
+  hacía con Redis caído, porque su cliente reintenta indefinidamente
+  —correcto para el consumidor, veneno para una sonda—. Cualquier
+  comprobación de dependencia va con plazo.
+- **Comprueba lo que devuelve la API, no solo lo que se guarda.** Al
+  añadir columnas nuevas, la consulta de la línea de tiempo las
+  guardaba bien y las devolvía como `undefined`, porque mapeaba las
+  entradas campo a campo.
+- Dentro de un contenedor, `localhost` puede resolver a IPv6 y los
+  servicios escuchan en IPv4. Usa `127.0.0.1` al probar desde dentro.
+- `docker compose up -d --build <servicio>` reconstruye también sus
+  dependencias, incluido el vision-service. Para tocar solo los
+  servicios Node: `docker compose build a b c` y luego
+  `docker compose up -d --no-deps a b c`.
+- Docker Desktop se cae solo en esta máquina de vez en cuando. Si algo
+  deja de responder, compruébalo antes de buscar el fallo en el código.
