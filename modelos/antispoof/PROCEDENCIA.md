@@ -12,6 +12,45 @@ bajo **licencia Apache 2.0** (copia en `LICENSE`).
 Descargados el 2026-09-14 de
 `raw.githubusercontent.com/minivision-ai/Silent-Face-Anti-Spoofing/master/resources/anti_spoof_models/`.
 
+## Y el codigo que los interpreta
+
+Un `.pth` sin la clase que lo carga no es nada, asi que la arquitectura
+viaja con los pesos. Esta en
+`services/vision-service/app/recognition/minifasnet/`, copiada del mismo
+repositorio y bajo la misma licencia:
+
+| archivo | origen |
+|---|---|
+| `MiniFASNet.py` | `src/model_lib/MiniFASNet.py` |
+| `generate_patches.py` | `src/generate_patches.py` |
+
+**Los dos llevan una cabecera de atribucion anadida, y nada mas.** El
+cuerpo esta sin tocar a proposito: ni formato, ni nombres, ni type
+hints. Poder compararlo contra el original de un vistazo es lo unico que
+permite auditar que lo que corre aqui es lo que se descargo, y un
+arreglo de estilo destruiria esa posibilidad a cambio de nada.
+
+Checksums del archivo **tal como se descargo**, es decir del actual
+quitandole la cabecera:
+
+| archivo | lineas de cabecera | sha256 del original |
+|---|---|---|
+| `MiniFASNet.py` | 27 (2-28) | `e498c4ec5e1ddfaba62b941a126c19d65aa564999f3309661fe43ee8bf38acd7` |
+| `generate_patches.py` | 23 (2-24) | `cd33552d5ca920088143daafceba3c19b7a64bf9aac125241803e1b4af698d65` |
+
+Para comprobarlo, desde la raiz del repositorio:
+
+    cd services/vision-service/app/recognition/minifasnet
+    { head -1 MiniFASNet.py; tail -n +29 MiniFASNet.py; } | sha256sum
+    { head -1 generate_patches.py; tail -n +25 generate_patches.py; } | sha256sum
+
+La linea 1 es el `# -*- coding: utf-8 -*-`, que va antes de la cabecera
+porque tiene que seguir siendo la primera del archivo.
+
+El codigo propio de este proyecto -el que decide como se recorta, como
+se normaliza y que significa cada salida- esta en
+`app/recognition/spoof.py`, fuera de esa carpeta.
+
 ## Por qué están versionados aquí y no se descargan al construir
 
 Mismo criterio que `rostros.pt`: **son parte del camino crítico de

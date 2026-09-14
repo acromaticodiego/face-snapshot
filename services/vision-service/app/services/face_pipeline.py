@@ -6,6 +6,7 @@ Pipeline de visión: imagen -> rostros con embedding.
     [3] LANDMARKS    2d106det -> 5 puntos canónicos
     [4] ALINEACION   transformación de similitud -> recorte 112x112
     [5] EMBEDDING    ArcFace w600k_r50 -> vector 512-d normalizado L2
+    [6] VIDA         MiniFASNet sobre el frame ORIGINAL -> probabilidad
 
 Este servicio NO tiene estado y NO conoce identidades: convierte píxeles
 en vectores. Quien decide "de quién es este rostro" es el Face Service.
@@ -25,6 +26,7 @@ from app.detection.base import FaceDetector
 from app.recognition import liveness, quality
 from app.recognition.aligner import FaceAligner
 from app.recognition.embedder import ArcFaceEmbedder
+from app.recognition.spoof import SpoofDetector
 from app.schemas.vision import (
     BoundingBox,
     DetectedFace,
@@ -45,11 +47,13 @@ class FacePipeline:
         detector: FaceDetector,
         aligner: FaceAligner,
         embedder: ArcFaceEmbedder,
+        spoof_detector: SpoofDetector,
         settings: Settings,
     ):
         self._detector = detector
         self._aligner = aligner
         self._embedder = embedder
+        self._spoof = spoof_detector
         self._settings = settings
 
     def load(self) -> None:
@@ -57,6 +61,7 @@ class FacePipeline:
         self._detector.load()
         self._aligner.load()
         self._embedder.load()
+        self._spoof.load()
 
     @property
     def detector_ready(self) -> bool:
@@ -67,11 +72,16 @@ class FacePipeline:
         return self._embedder.is_ready
 
     @property
+    def spoof_ready(self) -> bool:
+        return self._spoof.is_ready
+
+    @property
     def is_ready(self) -> bool:
         return (
             self._detector.is_ready
             and self._aligner.is_ready
             and self._embedder.is_ready
+            and self._spoof.is_ready
         )
 
     @property
@@ -81,6 +91,8 @@ class FacePipeline:
             detectorVersion=self._detector.version,
             embedder=self._embedder.name,
             embedderVersion=self._embedder.version,
+            spoofDetector=self._spoof.name,
+            spoofDetectorVersion=self._spoof.version,
         )
 
     @staticmethod
@@ -158,6 +170,8 @@ class FacePipeline:
                 rejected += 1
                 continue
 
+            caja = self._to_bbox(det, w, h)
+
             try:
                 # La alineación incluye los landmarks: es el paso que el
                 # ADR 0002 documenta como obligatorio, y conviene poder
@@ -178,6 +192,25 @@ class FacePipeline:
                     vida = liveness.assess(aligned)
                     span.set_attribute("vision.liveness.detail_ratio", vida.detail_ratio)
                     span.set_attribute("vision.liveness.pattern_peak", vida.pattern_peak)
+                # Sobre el frame ORIGINAL y con la caja del detector, no
+                # sobre el recorte alineado: entre el sensor y los 112x112
+                # hay dos reducciones sin antialias, y eso es justo lo que
+                # borro la senal anterior (ADR 0010, actualizacion).
+                #
+                # Span propio porque es el gasto nuevo de esta fase y hay
+                # que poder verlo por separado: son ~23 ms frente a los
+                # ~740 del detector, y esa proporcion es la que justifica
+                # tenerlo encendido en cada frame.
+                with tracer.start_as_current_span("vision.spoof") as span:
+                    suplantacion = self._spoof.score(
+                        image_bgr, (caja.x, caja.y, caja.width, caja.height)
+                    )
+                    span.set_attribute("vision.spoof.measured", suplantacion is not None)
+                    if suplantacion is not None:
+                        span.set_attribute(
+                            "vision.spoof.real_score", suplantacion.real_score
+                        )
+                        span.set_attribute("vision.spoof.label", suplantacion.label_name)
             except Exception as exc:  # noqa: BLE001
                 # Un rostro que falla no debe tumbar el frame completo.
                 logger.warning("fallo_al_embeber_rostro", error=str(exc))
@@ -186,7 +219,7 @@ class FacePipeline:
 
             faces.append(
                 DetectedFace(
-                    bbox=self._to_bbox(det, w, h),
+                    bbox=caja,
                     detectionScore=round(det.score, 4),
                     embedding=embedding.tolist(),
                     quality=FaceQuality(
@@ -196,6 +229,11 @@ class FacePipeline:
                         truncated=report.truncated,
                     ),
                     liveness=Liveness(
+                        # None si no se pudo medir, nunca 0.0: ver el
+                        # esquema. Un cero es «ataque segurisimo».
+                        spoofScore=(
+                            suplantacion.real_score if suplantacion else None
+                        ),
                         detailRatio=vida.detail_ratio,
                         patternPeak=vida.pattern_peak,
                     ),

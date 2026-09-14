@@ -21,8 +21,21 @@ export interface IdentifiedFace {
    * y un despliegue escalonado no puede dejar a nadie fuera.
    */
   liveness?: {
-    detailRatio: number;
-    patternPeak: number;
+    /**
+     * Probabilidad de cara real según MiniFASNet, en [0, 1]. Es la que
+     * decide.
+     *
+     * Opcional DENTRO del objeto, y no por simetría con lo de arriba:
+     * un Vision Service de la Fase 6 envía `liveness` con las dos
+     * señales viejas pero sin esta, y uno actual la envía ausente
+     * cuando no pudo medirla. Nunca llega como 0.0, que significaría
+     * «ataque segurísimo».
+     */
+    spoofScore?: number | null;
+    /** Refutada contra un ataque real. No decide nada (ADR 0014). */
+    detailRatio?: number;
+    /** Refutada contra un ataque real. No decide nada (ADR 0014). */
+    patternPeak?: number;
   };
   match: {
     personId: string;

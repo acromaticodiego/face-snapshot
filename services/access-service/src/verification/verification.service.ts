@@ -111,9 +111,12 @@ export class VerificationService {
   /**
    * Politica de deteccion de vida.
    *
-   * El modo por defecto es SOFT -anota y deja pasar- porque la senal no
-   * esta validada contra ataques reales. Encender HARD sin haber mirado
-   * antes lo que SOFT registra es denegar accesos a ciegas.
+   * El modo por defecto sigue siendo SOFT -anota y deja pasar- aunque la
+   * senal ya NO sea la sin calibrar de antes. Lo que falta ahora no es
+   * precision: es cobertura. El conjunto con el que se midio es de una
+   * persona y un movil, sin foto impresa ni video en pantalla. Encender
+   * HARD sin haber mirado antes lo que SOFT registra con trafico real
+   * sigue siendo denegar accesos a ciegas.
    */
   private readonly liveness: LivenessPolicy;
 
@@ -136,13 +139,17 @@ export class VerificationService {
 
     this.liveness = {
       mode: config.get<LivenessPolicy['mode']>('LIVENESS_MODE', 'SOFT'),
-      // Los umbrales salen de medir degradaciones SINTETICAS sobre un
-      // rostro: captura directa 0.56 de detalle y 14 de pico; una foto
-      // de una foto 0.32 y 38; una pantalla 0.63 y 149. Estan puestos
-      // en medio de esos valores y son PROVISIONALES hasta medirlos
-      // con ataques reales. Por eso el modo por defecto no deniega.
-      minDetailRatio: Number(config.get('LIVENESS_MIN_DETAIL_RATIO', 0.25)),
-      maxPatternPeak: Number(config.get('LIVENESS_MAX_PATTERN_PEAK', 90)),
+      // 0.60 cae dentro del hueco que dejo la medida contra el ataque
+      // real: la peor cara real de 40 dio 0.7769 y el mejor ataque de
+      // 38 dio 0.5388. Entre esos dos valores no hay nada.
+      //
+      // Que el corte se elija sabiendo donde esta el hueco es
+      // exactamente el error que se cometio con la senal anterior, asi
+      // que se comprobo aparte: eligiendo el corte SOLO con la sesion 1
+      // sale 0.6334, y aplicado a las sesiones que no participaron da
+      // 0 % y 0 %. No es un numero que solo funcione mirando todas las
+      // respuestas.
+      minSpoofScore: Number(config.get('LIVENESS_MIN_SPOOF_SCORE', 0.6)),
     };
   }
 
@@ -225,9 +232,10 @@ export class VerificationService {
     // fuente consistentemente sospechosa nunca llega a los 3 votos.
     //
     // En SOFT se anota y se sigue. Es el modo por defecto a propósito:
-    // la señal no está validada contra ataques reales, y denegar el
-    // paso a una persona real con un número sin calibrar es peor que el
-    // problema que resuelve.
+    // la señal ya está medida contra un ataque real y separa (ADR
+    // 0014), pero ese ataque era una persona y un móvil. Sin foto
+    // impresa ni vídeo en pantalla, lo que se sabe es que funciona
+    // contra lo que se probó, no contra lo que entrará por la puerta.
     const vida = judgeFrame(face.liveness, this.liveness);
     if (vida.suspicious) {
       this.metrics.registrarSospechaDeVida(vida.reason, this.liveness.mode);

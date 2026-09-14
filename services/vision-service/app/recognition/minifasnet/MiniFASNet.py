@@ -1,4 +1,31 @@
 # -*- coding: utf-8 -*-
+# ══════════════════════════════════════════════════════════════════
+#  ARCHIVO DE TERCEROS — copiado tal cual, NO se modifica.
+#
+#  Origen   : https://github.com/minivision-ai/Silent-Face-Anti-Spoofing
+#             src/model_lib/MiniFASNet.py
+#  Autoria  : zhuying — Minivision Technology
+#  Licencia : Apache-2.0, copia completa en modelos/antispoof/LICENSE
+#
+#  POR QUE ESTA COPIADO Y NO INSTALADO
+#  ───────────────────────────────────
+#  El repositorio de origen no publica paquete: no hay nada que poner
+#  en requirements.txt. Y los pesos viven versionados en
+#  modelos/antispoof/ por ser camino critico de seguridad, asi que la
+#  arquitectura que los interpreta tiene que viajar con ellos: un .pth
+#  sin la clase que lo carga no vale para nada.
+#
+#  SE MANTIENE SIN TOCAR, A PROPOSITO
+#  ──────────────────────────────────
+#  Ni formato, ni nombres, ni type hints, ni el encabezado original del
+#  autor. Cualquier arreglo de estilo haria imposible comparar contra el
+#  original de un vistazo, y esa comparacion es lo unico que permite
+#  auditar que lo que corre aqui es lo que se descargo. El codigo de
+#  este proyecto esta en app/recognition/spoof.py.
+#
+#  OJO: la entrada va en 0-255, NO en [0,1]. El motivo y lo que cuesta
+#  equivocarse estan en modelos/antispoof/PROCEDENCIA.md.
+# ══════════════════════════════════════════════════════════════════
 # @Time : 20-6-3 下午4:45
 # @Author : zhuying
 # @Company : Minivision

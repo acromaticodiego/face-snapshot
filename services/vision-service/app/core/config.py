@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     yolo_iou: float = Field(default=0.45, alias="YOLO_IOU_THRESHOLD")
     yolo_imgsz: int = Field(default=640, alias="YOLO_IMAGE_SIZE")
 
+    # ── Deteccion de vida ─────────────────────────────────────────
+    # Los dos pesos de MiniFASNet van VERSIONADOS en el repositorio, no
+    # se descargan al construir: deciden si una puerta se abre, y eso no
+    # puede depender de que un tercero siga sirviendo un archivo ni
+    # cambiar de contenido sin que nadie se entere (modelos/antispoof/
+    # PROCEDENCIA.md). Aqui solo se dice donde estan montados.
+    antispoof_models_dir: Path = Field(
+        default=Path("../../modelos/antispoof"), alias="ANTISPOOF_MODELS_DIR"
+    )
+
     # ── Embeddings ────────────────────────────────────────────────
     insightface_pack: str = Field(default="buffalo_l", alias="INSIGHTFACE_MODEL_PACK")
     embedding_model_name: str = Field(

@@ -1,4 +1,27 @@
 # -*- coding: utf-8 -*-
+# ══════════════════════════════════════════════════════════════════
+#  ARCHIVO DE TERCEROS — copiado tal cual, NO se modifica.
+#
+#  Origen   : https://github.com/minivision-ai/Silent-Face-Anti-Spoofing
+#             src/generate_patches.py
+#  Autoria  : zhuying — Minivision Technology
+#  Licencia : Apache-2.0, copia completa en modelos/antispoof/LICENSE
+#
+#  QUE HACE, Y POR QUE HACE FALTA TAL CUAL
+#  ───────────────────────────────────────
+#  Recorta el rostro con un margen alrededor. Ese margen NO es estetico:
+#  cada uno de los dos modelos se entreno con su propia escala -2.7 y
+#  4.0- y espera ver exactamente esa cantidad de contexto. Recortar mas
+#  ajustado o mas holgado le cambia la entrada respecto a lo que vio
+#  entrenando, y el numero que devuelve deja de significar lo mismo.
+#
+#  Por eso se copia en vez de reescribirlo con cv2 en cuatro lineas: el
+#  ajuste de la caja a los bordes de la imagen es parte del contrato con
+#  los pesos, no un detalle de implementacion.
+#
+#  Se mantiene sin tocar por el mismo motivo que MiniFASNet.py: poder
+#  compararlo contra el original de un vistazo.
+# ══════════════════════════════════════════════════════════════════
 # @Time : 20-6-9 下午3:06
 # @Author : zhuying
 # @Company : Minivision

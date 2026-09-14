@@ -90,6 +90,7 @@ async def health(request: Request) -> HealthResponse:
         service=settings.service_name,
         detectorReady=pipeline.detector_ready,
         embedderReady=pipeline.embedder_ready,
+        spoofReady=pipeline.spoof_ready,
         detectorBackend=settings.detector_backend,
         embeddingModel=settings.embedding_model_name,
         embeddingDim=settings.embedding_dim,
