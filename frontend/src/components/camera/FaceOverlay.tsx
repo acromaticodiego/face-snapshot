@@ -10,13 +10,29 @@ interface FaceOverlayProps {
   /** Elemento de vídeo sobre el que se dibuja. */
   videoRef: React.RefObject<HTMLVideoElement | null>;
   mirrored?: boolean;
+  /**
+   * La captura no parece una persona viva.
+   *
+   * Cuando esto es cierto manda sobre todo lo demas, incluso si el
+   * rostro se reconocio: una foto de alguien registrado SE RECONOCE
+   * -al 76 % en la prueba del 2026-09-14- y justo por eso pintarla de
+   * verde seria decir lo contrario de lo que pasa.
+   */
+  suspicious?: boolean;
 }
 
 /**
  * Dibuja las cajas sobre el vídeo.
  *
- * VERDE  = persona registrada.
- * ROJA   = rostro desconocido.
+ * VERDE    = persona registrada.
+ * ROJA     = rostro desconocido.
+ * NARANJA  = la captura no parece una persona viva.
+ *
+ * El naranja NO es un rojo mas suave: es una categoria distinta. Rojo
+ * significa «no te conozco»; naranja significa «esto puede ser una
+ * foto». Para quien opera el sistema son dos incidentes de gravedad
+ * muy distinta, y si compartieran color no podria distinguirlos de un
+ * vistazo, que es justo para lo que sirve el color.
  *
  * Se usan elementos del DOM en lugar de <canvas> para que las cajas
  * puedan transicionar con CSS. A 5 fps, un canvas redibujado daría
@@ -30,6 +46,7 @@ export function FaceOverlay({
   sourceHeight,
   videoRef,
   mirrored = true,
+  suspicious = false,
 }: FaceOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState({ x: 1, y: 1, offsetX: 0, offsetY: 0 });
@@ -96,12 +113,19 @@ export function FaceOverlay({
           : face.bbox.x * scale.x + scale.offsetX;
 
         // El significado del color NO cambia con el rediseño: verde es
-        // persona registrada y rojo es desconocida. Es la información
-        // más importante de la pantalla y no debe depender de la moda
-        // visual del momento.
-        const color = face.recognized
-          ? 'var(--color-vault-green)'
-          : 'var(--color-denied)';
+        // persona registrada, rojo desconocida y naranja sospecha de
+        // suplantación. Es la información más importante de la pantalla
+        // y no debe depender de la moda visual del momento.
+        //
+        // La sospecha gana a las otras dos a propósito. Es el único
+        // caso en el que un rostro RECONOCIDO no se pinta de verde, y
+        // tiene que ser así: lo que hay delante puede ser una foto de
+        // alguien que sí está registrado.
+        const color = suspicious
+          ? 'var(--color-vault-orange)'
+          : face.recognized
+            ? 'var(--color-vault-green)'
+            : 'var(--color-denied)';
 
         return (
           <div
@@ -148,12 +172,32 @@ export function FaceOverlay({
                 boxShadow: `0 0 20px -6px ${color}`,
               }}
             >
-              <span>{face.recognized ? '✓' : '✕'}</span>
-              <span>{face.personName ?? 'Desconocido'}</span>
-              {face.recognized && (
-                <span className="opacity-80">
-                  {Math.round(face.confidence * 100)}%
-                </span>
+              {/*
+                CON SOSPECHA NO SE ENSEÑA EL NOMBRE NI EL PORCENTAJE, y
+                no es por estética. Una foto en una pantalla se reconoce
+                perfectamente; mostrar «diego ossa 76 %» encima de un
+                intento de suplantación le estaría confirmando a quien lo
+                intenta que su foto ya sirve para el reconocimiento y que
+                solo le falta sortear la detección de vida.
+
+                Quien investiga el incidente sí ve la identidad: queda en
+                el registro de accesos y en el panel del operador.
+              */}
+              {suspicious ? (
+                <>
+                  <span>⚠</span>
+                  <span>Posible suplantación</span>
+                </>
+              ) : (
+                <>
+                  <span>{face.recognized ? '✓' : '✕'}</span>
+                  <span>{face.personName ?? 'Desconocido'}</span>
+                  {face.recognized && (
+                    <span className="opacity-80">
+                      {Math.round(face.confidence * 100)}%
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
