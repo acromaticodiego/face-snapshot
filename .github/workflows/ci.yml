@@ -121,6 +121,15 @@ jobs:
         working-directory: services/vision-service
         run: python -m compileall -q app scripts
 
+      # Solo los del medidor de vida: el resto de tests de este servicio
+      # necesita los modelos y una imagen real. La aritmética del
+      # medidor no toca ni red ni modelos, y conviene que corra porque
+      # su primera versión daba por buena una señal habiendo medido
+      # cero caras.
+      - name: Tests del medidor de vida
+        working-directory: services/vision-service
+        run: python -m unittest discover -s tests -p "test_medir*.py" -v
+
   voice:
     name: Voice Service
     runs-on: ubuntu-latest

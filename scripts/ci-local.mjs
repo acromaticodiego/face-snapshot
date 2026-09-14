@@ -73,9 +73,17 @@ const ignored = run(
   .split('\n')
   .filter((line) => line.startsWith('!!'))
   .map((line) => line.slice(3).trim())
+  // Lo que se ignora a proposito y NO es codigo fuente perdido.
+  //
+  // `datasets/` guarda los conjuntos de ataque con los que se mide la
+  // deteccion de vida, y son ROSTROS DE PERSONAS CONCRETAS: estan
+  // excluidos del repositorio a proposito y no deben entrar nunca. Sin
+  // esta linea, esta comprobacion se pone en rojo en cuanto alguien
+  // graba un conjunto con `scripts/capture-attack-set.mjs`, y un aviso
+  // que salta siempre acaba siendo un aviso que nadie lee.
   .filter(
     (path) =>
-      !/node_modules|\.venv|dist\/|__pycache__|\.env|coverage|tsbuildinfo|\.git\//.test(
+      !/node_modules|\.venv|dist\/|__pycache__|\.env|coverage|tsbuildinfo|\.git\/|^datasets\//.test(
         path,
       ),
   );
@@ -154,11 +162,36 @@ section('4. frontend');
 
 // ── 5. Vision Service ─────────────────────────────────────────────
 section('5. services/vision-service');
-step(
-  'Sintaxis de Python',
-  'python -m compileall -q app scripts',
-  join(process.cwd(), 'services', 'vision-service'),
-);
+{
+  const cwd = join(process.cwd(), 'services', 'vision-service');
+  step('Sintaxis de Python', 'python -m compileall -q app scripts', cwd);
+
+  // Solo `test_medir*`, y por una razón concreta: el resto de este
+  // directorio -la prueba de humo y la de calidad del reconocimiento-
+  // necesita los modelos cargados y una imagen real, así que vive en
+  // local y no puede correr aquí.
+  //
+  // El medidor de la detección de vida sí puede: su aritmética no toca
+  // ni red ni modelos. Y conviene que corra, porque su primera versión
+  // declaraba «la señal separa» habiendo medido CERO caras.
+  step(
+    'Tests del medidor de vida',
+    'python -m unittest discover -s tests -p "test_medir*.py" -q',
+    cwd,
+  );
+
+  // `test_spoof.py` NO corre aquí: necesita torch y los dos pesos de
+  // MiniFASNet. Se deja escrito cómo lanzarlo porque es el que caza la
+  // trampa del /255 -alimentado en [0,1] el modelo responde lo mismo a
+  // una cara, a ruido y a una imagen negra- y esa es exactamente la
+  // clase de fallo que nadie encuentra leyendo el código.
+  console.log(
+    '\x1b[90m      test_spoof.py necesita torch y los pesos; se ejecuta en el ' +
+      'contenedor:\n' +
+      '        docker compose cp services/vision-service/tests/test_spoof.py vision-service:/tmp/\n' +
+      '        docker compose exec -T -w /tmp vision-service python -m unittest test_spoof\x1b[0m',
+  );
+}
 
 // ── 6. Voice Service ──────────────────────────────────────────────
 //

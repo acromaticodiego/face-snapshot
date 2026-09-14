@@ -883,71 +883,83 @@ la persona se renombre o se elimine.
 Estas limitaciones son reales y deben conocerse antes de usar el sistema
 en producción.
 
-#### 1. Detección de vida SIN VALIDAR — sigue siendo la más importante
+#### 1. Detección de vida MEDIDA, pero contra un solo tipo de ataque
 
-Hay detección de vida pasiva desde la Fase 6, y hay que leer con cuidado
-qué significa eso: **el mecanismo existe y no está validado.**
+Desde la Fase 6 hay detección de vida pasiva. Lo que cambió el
+2026-09-14 es que **ya está medida contra un ataque real, y la señal que
+no funcionaba está sustituida**.
 
-Mide dos cosas sobre la textura del rostro —cuánto detalle fino tiene y
-si hay un patrón periódico— y el Access Service decide con ellas. Cuesta
-4.7 ms de los ~1100 de un frame, medido con la traza.
+Hoy la decide **MiniFASNet** (dos pesos de
+[minivision-ai/Silent-Face-Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing),
+Apache-2.0, versionados en `modelos/antispoof/` con sus checksums). El
+Vision Service devuelve `spoofScore`, una probabilidad de cara real, y
+el Access Service decide con ella: la medida y la política siguen
+separadas, como en todo lo demás.
 
-**Por defecto NO deniega.** El modo es `SOFT`: anota la sospecha en
-`acceso_sospechas_de_vida` y deja pasar. El motivo es que nadie ha
-medido su tasa de falso rechazo contra ataques reales, y denegar el paso
-a una persona real con un número sin calibrar es peor que el problema
-que resuelve.
+Medido sobre 40 caras reales y 38 fotos de esas caras en la pantalla de
+un móvil, con la webcam del despliegue y en la variante de 640 px que el
+terminal envía de verdad:
 
-**Ya está medido con un ataque real, y no funciona.** El 2026-09-13 se
-probaron, con la misma webcam y seguidas, una cara real y una foto de
-esa cara en la pantalla de un móvil. **Las dos entraron, y las dos
-señales apuntan al revés:**
-
-| | detalle fino | pico periódico |
+| | cara real (n=40) | pantalla (n=38) |
 |---|---|---|
-| Cara real (3 frames) | 0.382 – 0.443 | **24.8 – 43.6** |
-| Móvil (4 frames) | 0.357 – 0.442 | **23.7 – 28.9** |
+| `spoofScore` | 0.9851 ± 0.0399 | 0.1187 ± 0.1517 |
+| peor caso | **0.7769** | **0.5388** |
 
-El pico periódico existe precisamente para delatar la rejilla de una
-pantalla, y marcó **más alto con la cara real**. El detalle fino da
-prácticamente lo mismo en los dos casos. **Esto no es un problema de
-umbral**: cualquiera que atrapara el móvil rechazaría antes una cara
-real. No se calibra, se sustituye.
+Entre 0.5388 y 0.7769 no cae ninguna de las 78 imágenes. Con el umbral
+por defecto (`0.60`): **APCER 0.0 %, BPCER 0.0 %**. El modelo nunca vio
+estas imágenes y no se ha ajustado nada con ellas. Cuesta **9.2 ms de
+mediana**, frente a los ~740 ms del detector.
 
-**Por qué falla, y es estructural.** La señal se mide sobre el recorte
-alineado de 112x112, y para llegar a él la imagen pasa por dos
-reducciones sin filtro antialias: el terminal manda 640 px de ancho, y
-`norm_crop` remuestrea a 112 con un `warpAffine` bilineal. La rejilla de
-una pantalla no sobrevive a eso —se pierde o se pliega por aliasing a
-una frecuencia cualquiera—, así que `pattern_peak` no está midiendo
-periodicidad: está midiendo si la banda alta tiene estructura marcada, y
-una cara real directa tiene más que una pantalla. De ahí el signo
-invertido. **Cualquier señal sustituta que dependa de la textura tendrá
-que medirse antes de esas reducciones.**
+Y el corte elegido usando **solo la primera tanda de captura**, aplicado
+a las tandas que no participaron en elegirlo, también da 0 % y 0 %. Esa
+comprobación no es adorno: la señal anterior daba **cero error dentro de
+su tanda** y APCER 25 % con BPCER 20 % al cambiar de tanda.
 
-Antes se había intentado fabricar el ataque degradando una imagen, y
-aquel intento dejó otro hallazgo que sigue en pie: **el detector deja de
-encontrar la cara antes de que la señal reaccione**. Un ataque de
-pantalla realista no se fabrica, hay que fotografiar una pantalla.
+**Por defecto SIGUE SIN DENEGAR**, y el motivo ha cambiado. Ya no es que
+falte medir: es que falta **cobertura**. El conjunto es de una persona y
+un móvil —sin foto impresa, sin vídeo en pantalla, sin máscara, sin una
+segunda cara—, y la ISO/IEC 30107-3 pide bastante más que eso para
+escribir «APCER» sin comillas. El modo es `SOFT`: anota la sospecha en
+`acceso_sospechas_de_vida` y deja pasar.
 
-**Cómo reunir el conjunto con el que medir.** Hay una herramienta para
-grabarlo por el mismo camino que captura el terminal:
+Así que la afirmación honesta hoy es: **el sistema sigue sin ser apto
+para control de acceso real**, pero por un motivo más estrecho que
+antes. Su defensa contra suplantación ya no está sin validar; está
+validada contra **un** tipo de ataque, y no se ha probado contra los
+demás.
+
+**La señal anterior, y por qué se retiró.** Medía dos cosas sobre la
+textura del recorte alineado —`detailRatio` y `patternPeak`— y las dos
+fallaron contra el mismo conjunto. El pico periódico existía para
+delatar la rejilla de una pantalla y marcaba **más alto con la cara
+real**; dentro de las caras reales correlaciona +0.39 con el ancho de la
+cara, o sea que medía la distancia a la cámara tanto como el ataque. La
+causa es estructural: entre el sensor y el recorte de 112x112 hay dos
+reducciones sin filtro antialias, y una rejilla de píxeles no sobrevive
+a eso. **Por eso la señal nueva se mide sobre el frame original.** Las
+dos viejas se siguen calculando y enviando, pero **no deciden nada**:
+están ahí para poder compararlas mientras dure el despliegue.
+
+**Cómo reproducirlo.** Las dos mitades de la herramienta:
 
 ```bash
-node scripts/capture-attack-set.mjs      # abre http://localhost:5174
+node scripts/capture-attack-set.mjs      # graba (abre http://localhost:5174)
+node scripts/measure-liveness.mjs        # responde si una señal separa
 ```
 
-Guarda las dos clases en `datasets/liveness/` —fuera del repositorio,
-son rostros reales— con dos variantes de cada disparo: lo que el
-terminal envía hoy, y el frame nativo por si una señal futura necesita
-más píxeles. Sin ese conjunto no se puede evaluar ninguna alternativa.
+El conjunto se guarda en `datasets/liveness/` —fuera del repositorio,
+son rostros reales— con dos variantes por disparo: lo que el terminal
+envía hoy y el frame nativo. El medidor pasa cada imagen por el Vision
+Service, prueba todos los cortes posibles, **y además parte el conjunto
+por tanda de captura para aplicar a una el corte elegido en otra**. El
+veredicto sale en el código de salida: `0` separa, `1` no, `2` no se
+pudo medir.
 
-Así que la afirmación honesta es más dura que antes: **el sistema no es
-apto para control de acceso real**, y su defensa contra suplantación no
-solo está sin validar, sino medida y fallando. El
-[ADR 0010](docs/adr/0010-deteccion-de-vida.md) detalla las dos vías que
-quedan —un modelo entrenado, o el reto activo— y qué haría falta para
-encender el modo que sí deniega.
+Los números completos, el umbral y qué haría falta para encender el modo
+que sí deniega están en el
+[ADR 0014](docs/adr/0014-modelo-de-deteccion-de-vida.md); el
+[ADR 0010](docs/adr/0010-deteccion-de-vida.md) conserva la estructura de
+la decisión y la autopsia de la señal que se retiró.
 
 #### 2. Sin revocación de tokens
 
@@ -1468,6 +1480,7 @@ lo sobrescribe.
 node scripts/ci-local.mjs        # reproduce el CI completo en local
 node scripts/smoke-test.mjs --enroll a1.jpg --verify a2.jpg --stranger b.jpg
 node scripts/capture-attack-set.mjs   # graba el conjunto de ataque (ver limitación 1)
+node scripts/measure-liveness.mjs     # y responde si la señal separa
 ```
 
 ### Qué se prueba, y por qué eso
@@ -1585,3 +1598,4 @@ Documentadas en [`docs/adr/`](docs/adr/):
 | 0011 | Voz e IA: el modelo propone, la persona firma |
 | 0012 | La bitácora: firmada, inmutable y con el cruce congelado |
 | 0013 | El servidor MCP: cliente del Gateway, y de solo lectura |
+| 0014 | MiniFASNet sustituye a la señal espectral (reemplaza la señal del 0010) |

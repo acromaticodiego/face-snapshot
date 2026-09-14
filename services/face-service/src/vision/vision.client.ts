@@ -21,14 +21,27 @@ export interface VisionDetectedFace {
     truncated: boolean;
   };
   /**
-   * Evidencia de vida. NO es un veredicto: son medidas crudas sobre la
-   * textura del rostro, y quien decide qué significan es el Access
-   * Service, que es el único que tiene política.
+   * Evidencia de vida. NO es un veredicto: son medidas crudas sobre el
+   * rostro, y quien decide qué significan es el Access Service, que es
+   * el único que tiene política.
+   *
+   * El Face Service no mira ninguna de estas: las reenvía tal cual. Que
+   * estén tipadas aquí es lo que evita que un cambio de nombre en el
+   * Vision Service llegue en silencio hasta la decisión de acceso.
    */
   liveness: {
-    /** Cae con una reimpresión o una foto de una foto. */
+    /**
+     * Probabilidad de cara real según MiniFASNet, en [0, 1]. Es la
+     * única que decide algo (ADR 0014).
+     *
+     * Llega AUSENTE cuando no se pudo medir, nunca como 0.0: un cero
+     * significaría «ataque segurísimo» y en modo HARD dejaría fuera a
+     * una persona real por un fallo de medida.
+     */
+    spoofScore?: number | null;
+    /** Refutada contra un ataque real: no separa. */
     detailRatio: number;
-    /** Sube con la rejilla de una pantalla y con la recompresión. */
+    /** Refutada contra un ataque real: marca MÁS alto con la cara real. */
     patternPeak: number;
   };
 }
@@ -43,6 +56,8 @@ export interface VisionAnalyzeResult {
     detectorVersion: string;
     embedder: string;
     embedderVersion: string;
+    spoofDetector?: string;
+    spoofDetectorVersion?: string;
   };
 }
 

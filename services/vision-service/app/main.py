@@ -21,6 +21,7 @@ from app.core.telemetry import configure_telemetry
 from app.detection.factory import build_detector
 from app.recognition.aligner import FaceAligner
 from app.recognition.embedder import ArcFaceEmbedder
+from app.recognition.spoof import SpoofDetector
 from app.services.face_pipeline import FacePipeline
 
 settings = get_settings()
@@ -42,6 +43,11 @@ async def lifespan(app: FastAPI):
         detector=build_detector(settings),
         aligner=FaceAligner(model_pack=settings.insightface_pack),
         embedder=ArcFaceEmbedder(model_pack=settings.insightface_pack),
+        # Si faltan los pesos, esto revienta y el contenedor no levanta.
+        # Es lo que se quiere: un Vision Service que arranca sin medir la
+        # vida deja al Access Service sin evidencia, y sin evidencia no
+        # hay sospecha. La proteccion se habria apagado en silencio.
+        spoof_detector=SpoofDetector(models_dir=settings.antispoof_models_dir),
         settings=settings,
     )
     pipeline.load()

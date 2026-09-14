@@ -94,6 +94,12 @@ services:
     environment:
       FACE_DETECTOR_BACKEND: ${FACE_DETECTOR_BACKEND:-yolo}
       YOLO_FACE_MODEL_PATH: /app/modelos/rostros.pt
+      # Los dos pesos de MiniFASNet, por el mismo montaje que rostros.pt.
+      # Si faltan, el servicio NO arranca: un Vision Service que levanta
+      # sin medir la vida deja al Access Service sin evidencia, y sin
+      # evidencia no hay sospecha. La proteccion se apagaria en silencio,
+      # que es el unico modo de fallo que aqui no vale.
+      ANTISPOOF_MODELS_DIR: /app/modelos/antispoof
       YOLO_CONFIDENCE_THRESHOLD: ${YOLO_CONFIDENCE_THRESHOLD:-0.45}
       YOLO_IMAGE_SIZE: ${YOLO_IMAGE_SIZE:-640}
       MIN_FACE_SIZE_PX: ${MIN_FACE_SIZE_PX:-80}
@@ -250,12 +256,14 @@ services:
       # ventana son el mismo paso, no dos.
       ANTIPASSBACK_GRACE_SECONDS: ${ANTIPASSBACK_GRACE_SECONDS:-10}
       # Deteccion de vida. El defecto es SOFT -anota la sospecha y deja
-      # pasar- porque la senal NO esta validada contra ataques reales.
-      # Poner HARD sin haber mirado antes lo que SOFT registra es
-      # empezar a dejar gente en la calle con un numero sin calibrar.
+      # pasar-, y ya no por falta de medida: la senal actual separa
+      # contra un ataque real sin solapamiento (ADR 0014). Lo que falta
+      # es cobertura, porque ese ataque era una persona y un movil.
       LIVENESS_MODE: ${LIVENESS_MODE:-SOFT}
-      LIVENESS_MIN_DETAIL_RATIO: ${LIVENESS_MIN_DETAIL_RATIO:-0.25}
-      LIVENESS_MAX_PATTERN_PEAK: ${LIVENESS_MAX_PATTERN_PEAK:-90}
+      # 0.60 cae en el hueco medido: peor cara real 0.7769 de 40, mejor
+      # ataque 0.5388 de 38. Atado al modelo que lo produce; si cambia
+      # `modelInfo.spoofDetector`, hay que volver a medir.
+      LIVENESS_MIN_SPOOF_SCORE: ${LIVENESS_MIN_SPOOF_SCORE:-0.60}
       OUTBOX_POLL_INTERVAL_MS: ${OUTBOX_POLL_INTERVAL_MS:-1000}
       OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
       OUTBOX_RETENTION_HOURS: ${OUTBOX_RETENTION_HOURS:-168}

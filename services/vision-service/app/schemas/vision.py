@@ -26,17 +26,33 @@ class Liveness(BaseModel):
     """
     Evidencia de vida. NO es un veredicto.
 
-    Son medidas crudas sobre la textura del rostro; quien decide que
-    significan es el Access Service, porque un umbral de seguridad es
-    politica y este servicio no tiene politica.
+    Son medidas crudas sobre el rostro; quien decide que significan es
+    el Access Service, porque un umbral de seguridad es politica y este
+    servicio no tiene politica.
+
+    LA QUE DECIDE ES `spoofScore`. Las otras dos se miden todavia, pero
+    quedaron refutadas contra un ataque real (ADR 0014) y ya no las mira
+    nadie: siguen aqui para poder comparar en la traza mientras dure el
+    despliegue, y se retiraran cuando el modelo lleve tiempo corriendo.
     """
 
-    #: Energia en frecuencias altas frente al total util. Cae con una
-    #: reimpresion o una foto de una foto.
+    #: Probabilidad de que el rostro sea una persona delante de la
+    #: camara, segun MiniFASNet, en [0, 1]. Mas alto = mas real.
+    #:
+    #: AUSENTE SI NO SE PUDO MEDIR, y nunca 0.0: un cero significa
+    #: «ataque segurisimo» y en modo HARD dejaria en la calle a una
+    #: persona real por un fallo de codigo. La ausencia viaja como
+    #: ausencia, y el Access Service no sospecha sin evidencia.
+    spoofScore: float | None = None
+
+    #: Energia en frecuencias altas frente al total util. REFUTADA: no
+    #: distingue una cara real de una foto en una pantalla.
     detailRatio: float
 
-    #: Fuerza del pico periodico mas marcado en la banda alta. Sube con
-    #: la rejilla de una pantalla y con la recompresion JPEG.
+    #: Fuerza del pico periodico mas marcado en la banda alta. REFUTADA,
+    #: y ademas al reves de lo previsto: marca MAS ALTO con la cara real
+    #: y correlaciona +0.39 con el ancho de la cara, asi que mide sobre
+    #: todo a que distancia esta la persona de la camara.
     patternPeak: float
 
 
@@ -53,6 +69,12 @@ class ModelInfo(BaseModel):
     detectorVersion: str
     embedder: str
     embedderVersion: str
+    #: Quien produjo `spoofScore`. Va en la respuesta porque el umbral
+    #: del Access Service esta calibrado contra ESTE modelo: si un dia
+    #: cambia, la escala del numero cambia con el y el umbral deja de
+    #: significar lo que significaba.
+    spoofDetector: str
+    spoofDetectorVersion: str
 
 
 class VisionAnalyzeResponse(BaseModel):
@@ -80,6 +102,7 @@ class HealthResponse(BaseModel):
     service: str
     detectorReady: bool
     embedderReady: bool
+    spoofReady: bool
     detectorBackend: str
     embeddingModel: str
     embeddingDim: int

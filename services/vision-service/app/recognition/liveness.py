@@ -1,5 +1,23 @@
 """
-Evidencia de vida, por frame.
+Evidencia de vida, por frame.  **SEÑAL RETIRADA — no decide nada.**
+
+LEE ESTO ANTES QUE NADA
+-----------------------
+Las dos medidas de este modulo se midieron contra un ataque real -40
+caras y 38 fotos de esas caras en la pantalla de un movil- y NO separan.
+El `pattern_peak`, que existia para delatar la rejilla de una pantalla,
+marca MAS ALTO con la cara real. Un corte elegido sobre una tanda de
+capturas daba 0 % de error dentro de ella y APCER 25 % con BPCER 20 % en
+la siguiente: habia aprendido la luz de aquella tarde.
+
+**Quien decide hoy es `spoof.py`** (MiniFASNet, sobre el frame original
+en vez de sobre este recorte, que es justo el motivo de que esto
+fallara). Los numeros y la autopsia estan en el ADR 0014.
+
+Esto se sigue calculando y enviando UNICAMENTE para poder comparar las
+tres señales en la misma traza mientras dure el despliegue. Se retirara
+cuando el modelo lleve tiempo corriendo. Todo lo que sigue describe por
+que se eligieron estas medidas, no lo que el sistema hace hoy.
 
 QUE ES ESTO Y QUE NO ES
 -----------------------

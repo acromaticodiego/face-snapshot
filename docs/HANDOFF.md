@@ -46,8 +46,8 @@ el horario, y registra el acceso.
 Arquitectura de microservicios, funcionando de extremo a extremo.
 **Fases 1, 2, 3 y 4 completadas**, más el rol en el alta, la capacidad
 del Vision Service y los tests del perímetro y del frontend.
-Lo siguiente está en la sección «LO SIGUIENTE, POR ORDEN»: la Fase 5
-(voz e IA), y calibrar la detección de vida con ataques reales.
+La Fase 5 (voz e IA) y la sustitución de la detección de vida están
+cerradas. Lo que queda está en la sección «LO SIGUIENTE, POR ORDEN».
 
 ---
 
@@ -240,46 +240,57 @@ los dos primeros guiones.
 Están documentadas en el README; **no las "descubras" como si fueran
 fallos**:
 
-1. **Detección de vida SIN VALIDAR.** Desde la Fase 6 existe el
-   mecanismo, y hay que leerlo con cuidado: **existe y no está
-   validado.** Mide detalle fino y patrón periódico sobre la textura del
-   rostro (4.7 ms de los ~1100 de un frame) y **por defecto NO deniega**
-   —modo `SOFT`: anota en `acceso_sospechas_de_vida` y deja pasar—
-   porque nadie ha medido su tasa de falso rechazo.
+1. **Detección de vida MEDIDA, pero contra un solo tipo de ataque.**
+   Desde el 2026-09-14 la decide **MiniFASNet**, y la señal espectral
+   que había antes está retirada porque se midió y no separaba.
 
-   **No se pudo demostrar que pare una foto en un móvil.** Hace falta un
-   conjunto de ataques reales y medir APCER/BPCER. El intento con un
-   ataque sintético dejó un hallazgo: el detector deja de encontrar la
-   cara antes de que la señal reaccione (al 2 % de modulación de rejilla
-   hay cara y no hay señal; al 5 % ya no hay cara). Con los umbrales por
-   defecto, el ataque sintético más fuerte que el detector tolera **no
-   se detecta**.
+   El Vision Service devuelve `spoofScore` —probabilidad de cara real—
+   y el Access Service decide con `LIVENESS_MIN_SPOOF_SCORE` (0.60).
+   Medido sobre 40 caras reales y 38 fotos de esas caras en la pantalla
+   de un móvil, variante de 640 px, **sin ajustar nada**:
 
-   **MEDIDO EL 2026-09-13, y es peor que «no separa»: las señales
-   apuntan AL REVES.** Con una cara real el pico periódico llegó a 43.6;
-   con una foto en la pantalla de un móvil nunca pasó de 28.9, cuando
-   ese número existe precisamente para delatar pantallas. Ningún umbral
-   sirve. Detalle completo más abajo, en «LA DETECCION DE VIDA NO
-   FUNCIONA».
+       cara real   0.9851 ± 0.0399   peor caso 0.7769
+       pantalla    0.1187 ± 0.1517   mejor caso 0.5388
+       APCER 0.0 %   BPCER 0.0 %   9.2 ms de mediana
+
+   Y el corte elegido usando solo la primera tanda de captura, aplicado
+   a las que no participaron en elegirlo, también da 0 % y 0 %.
+
+   **Por defecto SIGUE SIN DENEGAR** (`SOFT`: anota en
+   `acceso_sospechas_de_vida` y deja pasar), y el motivo ha cambiado. Ya
+   no es que falte medir: falta **cobertura**. El conjunto es de una
+   persona y un móvil, sin foto impresa, sin vídeo en pantalla, sin
+   máscara y sin una segunda cara.
 
    El sistema sigue **sin ser apto para control de acceso real**, ahora
-   porque su defensa no está validada en lugar de no existir. Lo que
-   haría falta para encender `HARD`, y en qué orden, está en el
-   [ADR 0010](adr/0010-deteccion-de-vida.md).
+   por un motivo más estrecho: su defensa está validada contra **un**
+   tipo de ataque y no se ha probado contra los demás. Los números y lo
+   que haría falta para encender `HARD` están en el
+   [ADR 0014](adr/0014-modelo-de-deteccion-de-vida.md); el
+   [ADR 0010](adr/0010-deteccion-de-vida.md) conserva la estructura de
+   la decisión y la autopsia de la señal retirada.
 
 2. **Cobertura de tests desigual, pero ya no en el perímetro.** Hay
-   **214 casos** repartidos así:
+   **298 casos**, recontados ejecutándolos el 2026-09-14:
 
    | Servicio | Casos | Qué cubre |
    |---|---|---|
-   | `access-service` | 94 | Política, votación, anti-passback, umbral, outbox, contrato del evento |
+   | `access-service` | 104 | Política, votación, anti-passback, umbral, outbox, contrato del evento, detección de vida |
+   | `frontend` | 73 | Reglas de `/home` y los tres estados del rol |
    | `shift-service` | 44 | Máquina de turnos, parser del bus, contexto de traza |
    | `api-gateway` | 26 | Los dos guards: la exclusión entre administrar y estar reconocido |
+   | `vision-service` | 18 | Aritmética del medidor de vida: veredicto, cortes y mitad reservada |
    | `auth-service` | 17 | Login, bloqueo por intentos, igualación de tiempos |
-   | `frontend` | 33 | Reglas de `/home` y los tres estados del rol |
+   | `logbook-service` | 16 | Firma, inmutabilidad y cruce congelado de la bitácora |
 
    Todas son funciones puras o con dobles, así que corren en segundos y
    sin contenedores.
+
+   **Fuera de esa cuenta** quedan los que necesitan algo instalado:
+   `services/vision-service/tests/test_spoof.py` (8 casos) pide torch y
+   los pesos y se ejecuta dentro del contenedor; los del
+   `voice-service` piden `httpx` y corren en el CI. `mcp-server` tiene
+   los suyos con su propio runner.
 
    El **frontend** tiene ya 33 casos con vitest y testing-library, y
    corren en el CI. Cubren las reglas, no los estilos: qué controles
@@ -448,12 +459,16 @@ de tiempo.
 `logbook-service`, servidor MCP e interfaz, verificados contra el stack.
 Detalle abajo.
 
-**2. Sustituir la señal de detección de vida**, que es lo único que
-queda del plan. La herramienta para reunir el conjunto de ataque ya
-existe: `node scripts/capture-attack-set.mjs`.
+**2. ~~Sustituir la señal de detección de vida~~ · HECHO.** Se reunió
+el conjunto de ataque (`scripts/capture-attack-set.mjs`), se midió
+(`scripts/measure-liveness.mjs`), la señal espectral quedó refutada y
+está sustituida por MiniFASNet. Ver
+[ADR 0014](adr/0014-modelo-de-deteccion-de-vida.md).
 
-**2. Conseguir ataques reales y calibrar la detección de vida**, que es
-lo que la Fase 6 dejó a medias y no se puede cerrar sin ellos.
+**3. Ampliar el conjunto de ataque**, que es lo que queda para poder
+encender `LIVENESS_MODE=HARD`. Faltan foto impresa, vídeo reproducido
+en pantalla, más de una persona y otra cámara. Mientras no estén, `HARD`
+no se enciende: lo medido cubre un solo tipo de ataque.
 
 ### Fase 5 — Voz e IA · EL `voice-service` YA ESTA
 
@@ -609,11 +624,21 @@ creerlos.
 incidencias sí. El texto es lo que se dijo y es lo que zanja una
 discusión; la estructura es una interpretación.
 
-**FASE 5 COMPLETA.** Lo siguiente es el paso 2: sustituir la señal de
-detección de vida, para lo que ya existe
-`node scripts/capture-attack-set.mjs`.
+**FASE 5 COMPLETA.** El paso 2 —sustituir la señal de detección de
+vida— también está cerrado; la autopsia de la señal vieja y lo que la
+reemplaza vienen a continuación.
 
-### LA DETECCION DE VIDA NO FUNCIONA — medido con datos reales
+### LA SEÑAL ESPECTRAL NO FUNCIONABA — y ya está sustituida
+
+> **Resuelto el 2026-09-14.** Lo decide ahora MiniFASNet
+> ([ADR 0014](adr/0014-modelo-de-deteccion-de-vida.md)), que sobre el
+> conjunto de ataque da APCER 0.0 % y BPCER 0.0 % sin haber ajustado
+> nada, y aguanta fuera de la tanda que eligió el corte.
+>
+> **Esta sección se conserva entera** porque el diagnóstico sigue
+> valiendo: explica por qué una señal pasiva no puede medirse sobre el
+> recorte de 112, que es la razón de que la nueva se mida sobre el frame
+> original. Lo que abajo aparece como pendiente está cumplido.
 
 **2026-09-13.** Se midieron dos pruebas consecutivas con la misma webcam
 y la misma persona: primero su cara real, después una foto de su cara en
@@ -666,20 +691,21 @@ probablemente tampoco sobre el frame de 640 que el terminal envía hoy.
 Sustituir la señal ya no es solo cambiar `liveness.py`: es decidir
 también qué imagen llega hasta ahí.
 
-**QUE HACER, y qué NO hacer:**
+**QUE SE HIZO CON ESTO**, en el orden en que estaba escrito:
 
-1. **NO tocar los umbrales.** Están anotados en `.env.example` como
-   provisionales y ahora se sabe que ninguno sirve.
-2. **NO poner `LIVENESS_MODE=HARD`.** Dejaría fuera a gente real antes
-   que a un atacante. El defecto `SOFT` es lo único que ha evitado que
-   este fallo tuviera consecuencias.
-3. **Decidir entre retirar la señal espectral o sustituirla.** Las dos
-   vías descritas en el [ADR 0010](adr/0010-deteccion-de-vida.md) siguen
-   en pie, y ahora hay con qué medirlas: un modelo entrenado
-   (MiniFASNet), o el reto activo (parpadear), que es el único cuya
-   eficacia se puede demostrar.
-4. **Ya hay herramienta para reunir el conjunto**, que era lo que
-   faltaba:
+1. ~~NO tocar los umbrales.~~ Los dos umbrales espectrales están
+   **retirados**: `LIVENESS_MIN_DETAIL_RATIO` y
+   `LIVENESS_MAX_PATTERN_PEAK` ya no existen. En su lugar hay uno solo,
+   `LIVENESS_MIN_SPOOF_SCORE=0.60`, y ese sí sale de una medida.
+2. **`LIVENESS_MODE=HARD` SIGUE SIN ENCENDERSE**, y este punto no ha
+   caducado. El motivo ha cambiado —ya no es que la señal esté sin
+   medir, es que solo se ha probado contra un tipo de ataque— pero la
+   conclusión es la misma: el defecto es `SOFT`.
+3. ~~Decidir entre retirar la señal espectral o sustituirla.~~ Se
+   sustituyó, por MiniFASNet. El reto activo sigue anotado como la
+   opción a recuperar si la vía pasiva no basta.
+4. **La herramienta para reunir el conjunto**, que fue lo que destrabó
+   todo lo demás:
 
    ```bash
    node scripts/capture-attack-set.mjs      # abre http://localhost:5174
@@ -699,40 +725,76 @@ también qué imagen llega hasta ahí.
    y el tiempo de alguien posando delante de una cámara es el recurso
    caro de todo esto.
 
-   Lo que **todavía no existe** es el script que mida el conjunto una
-   vez grabado —pasar cada imagen por el Vision Service y sacar APCER y
-   BPCER—. Va con el paso 2, no con la captura.
+   **Y el medidor también está**, que era la otra mitad:
 
-**Lo que esto NO invalida.** El andamiaje funciona y está probado: la
-evidencia viaja del Vision Service a la decisión, `HARD` deniega con
-`LIVENESS_FAILED`, `SOFT` con la misma sospecha deja pasar, y cuesta
-4.7 ms. Sustituir la señal es cambiar el contenido de
-`app/recognition/liveness.py` y los umbrales; no hay que rehacer nada
-más.
+   ```bash
+   node scripts/measure-liveness.mjs
+   ```
 
-### ~~Fase 6 — Anti-spoofing~~ · HECHA, con una advertencia grande
+   Pasa cada imagen por el Vision Service —reutilizando los modelos ya
+   cargados— y responde UNA pregunta: si existe algún umbral sobre las
+   señales actuales que separe las dos clases. Mide las **dos
+   variantes**, `terminal` y `nativo`, porque si separase solo en la
+   nativa la conclusión no sería «la señal sirve» sino «habría que
+   cambiar lo que el terminal envía», y eso tiene un coste que hay que
+   conocer antes de decidirlo.
+
+   Devuelve el veredicto en el código de salida: `0` separa, `1` no
+   separa, `2` no se pudo medir.
+
+   **Lee esto antes de fiarte del resultado.** La primera versión
+   declaraba «la señal separa» cuando el detector no había encontrado
+   NINGUNA cara: no hallaba indicios de lo contrario y lo tomaba por
+   bueno. Un medidor que declara éxito habiendo medido nada es peor que
+   uno que falla, porque el número que da no es optimista, es inventado.
+   Está arreglado y hay 18 tests que lo fijan —verificados rompiéndolos,
+   las cuatro mutaciones caen—, pero si tocas ese script, esa es la
+   trampa.
+
+   **Y ahora hace una cosa más**: parte el conjunto por tanda de
+   captura, elige el corte en la primera y lo aplica a las demás. Es la
+   comprobación que cazó el error de la señal vieja —0 % de error dentro
+   de su tanda, APCER 25 % y BPCER 20 % fuera— y vive dentro de la
+   herramienta justo para que no dependa de que alguien se acuerde de
+   hacerla.
+
+**Lo que esto NO invalidó.** El andamiaje, que era lo caro: la evidencia
+viaja del Vision Service a la decisión, `HARD` deniega con
+`LIVENESS_FAILED`, y `SOFT` con la misma sospecha deja pasar. Sustituir
+la señal fue añadir `app/recognition/spoof.py` y cambiar un umbral; no
+hubo que rehacer nada de la estructura.
+
+### ~~Fase 6 — Anti-spoofing~~ · HECHA, y ahora también medida
 
 Detección de vida pasiva: el Vision Service mide, el Access Service
-decide, y los modos son `OFF`/`SOFT`/`HARD` como el anti-passback.
-Cuesta 4.7 ms de los ~1100 de un frame. Ver
-[ADR 0010](adr/0010-deteccion-de-vida.md).
+decide, y los modos son `OFF`/`SOFT`/`HARD` como el anti-passback. Esa
+estructura es del [ADR 0010](adr/0010-deteccion-de-vida.md) y no ha
+cambiado.
 
-**LA ADVERTENCIA.** No está validada y el defecto no deniega. No digas
-en ningún sitio que el sistema detecta fotos: lo que se demostró es que
-el mecanismo funciona —`HARD` deniega, `SOFT` con la misma sospecha deja
-pasar— forzando un umbral imposible. Lo que NO se demostró es que
-detenga un ataque real.
+Lo que sí cambió es **quién mide**. Hoy es MiniFASNet, sobre el frame
+original y no sobre el recorte alineado, por 9.2 ms de mediana. La señal
+espectral anterior se retiró después de medirla contra un ataque real.
+Todo en el [ADR 0014](adr/0014-modelo-de-deteccion-de-vida.md).
 
-**Si retomas esto, empieza por aquí:** consigue ataques de verdad. Una
-foto impresa y una pantalla, capturadas con la misma cámara del
-despliegue. Sin eso no se puede calibrar nada, y todo lo demás es
-adivinar. El intento de fabricarlos sintéticamente falló por un motivo
-que conviene saber: **el detector deja de encontrar la cara antes de que
-la señal reaccione**, así que degradar una imagen no sirve.
+**LO QUE SE PUEDE DECIR, Y LO QUE NO.** Se puede decir que sobre 40
+caras reales y 38 fotos en la pantalla de un móvil, con la cámara del
+despliegue, no hubo ni un fallo en ninguno de los dos sentidos, y que el
+corte elegido en una tanda aguanta en las siguientes.
 
-Descartadas por ahora y anotadas: un modelo entrenado (MiniFASNet), que
-mete una dependencia externa en el camino crítico y tampoco se podría
-validar; y el reto activo (parpadear), que sí sería demostrable pero
-cambia la experiencia de pasar por una puerta, y eso es decisión de
-producto.
+**No se puede decir que el sistema detecta fotos.** No se ha probado
+contra foto impresa, ni contra vídeo reproducido en pantalla, ni con más
+de una persona, ni con otra cámara. Por eso el defecto sigue siendo
+`SOFT`, y por eso el README sigue diciendo que el sistema no es apto
+para control de acceso real.
+
+**Si retomas esto, empieza por aquí:** graba los ataques que faltan con
+`node scripts/capture-attack-set.mjs` y vuelve a pasar
+`node scripts/measure-liveness.mjs`. Es lo único que queda entre el
+estado actual y poder encender `HARD`, y hay que hacerlo **por zona**,
+no globalmente.
+
+Una advertencia que salió al probar el modelo y conviene no olvidar:
+alimentado con **ruido puro** devuelve 0.97 de «cara real». No es un
+validador de rostros —da por hecho que hay una cara porque el detector
+ya la encontró— y su número no significa nada fuera de ese contexto.
 

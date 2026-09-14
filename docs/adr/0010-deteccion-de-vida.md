@@ -1,13 +1,22 @@
 # ADR 0010 — Detección de vida pasiva, y por qué no deniega por defecto
 
-**Estado:** aceptada · 2026-09-13 · **la señal elegida quedó refutada**
-el 2026-09-13, ver «Actualización» al final
+**Estado:** aceptada en su estructura · **la señal que eligió está
+sustituida** desde el 2026-09-14 por el
+[ADR 0014](0014-modelo-de-deteccion-de-vida.md)
 
-> **Lee primero la actualización del final.** La decisión de estructura
-> —medir en el Vision Service, decidir en el Access Service, tres modos,
-> y no denegar por defecto— sigue en pie y demostrada. La **señal**
-> concreta que este ADR eligió, no: se midió contra un ataque real y
-> apunta al revés.
+> **Lo que sigue vigente de este ADR es la ESTRUCTURA**: medir en el
+> Vision Service, decidir en el Access Service, tres modos, no denegar
+> por defecto, y que un frame sospechoso no acumule voto. Todo eso está
+> en pie y demostrado.
+>
+> **Lo que NO**: la señal concreta. Se midió contra un ataque real, no
+> separa, y ya está sustituida por un modelo entrenado. Los números y el
+> reemplazo están en el [ADR 0014](0014-modelo-de-deteccion-de-vida.md);
+> la actualización del final de este documento cuenta por qué falló.
+>
+> Las tablas de degradaciones sintéticas que vienen a continuación **no
+> describen el sistema de hoy**. Se conservan porque explican en qué se
+> apoyaba la decisión original y por qué resultó estar mal apoyada.
 
 ## Contexto
 
@@ -244,3 +253,24 @@ imagen llega hasta ahí», que es una decisión de más calado.
 guarda de cada disparo tanto lo que el terminal envía como el frame
 nativo, precisamente para poder responder a esa pregunta sin repetir la
 sesión.
+
+---
+
+## Cómo acabó · 2026-09-14
+
+Se eligió la primera de las dos vías, y la condición de arriba resultó
+ser media verdad: **el frame de 640 sí sirve**, medido sobre él y no
+sobre el recorte de 112. Con ese cambio, MiniFASNet separa el conjunto
+entero sin solapamiento y aguanta fuera de la tanda que eligió el corte.
+
+Lo que este ADR descartó de MiniFASNet en su día era razonable con lo
+que se sabía entonces —«procedencia incierta», «cuesta latencia»,
+«tampoco se podría validar»— y las tres objeciones tienen respuesta:
+los pesos van versionados con sus checksums, cuesta 9 ms frente a los
+740 del detector, y ya hay con qué validar. Los números, en el
+[ADR 0014](0014-modelo-de-deteccion-de-vida.md).
+
+**El reto activo sigue sin descartarse del todo**, por el mismo motivo
+de siempre: es la única vía que se puede demostrar entera. Queda como
+la opción a recuperar si la pasiva no basta contra los ataques que
+todavía no se han probado.
