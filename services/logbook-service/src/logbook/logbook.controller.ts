@@ -58,6 +58,33 @@ export class LogbookController {
     );
   }
 
+  @Post('incidents/:id/resolve')
+  @ApiOperation({
+    summary: 'Cierra una incidencia pendiente',
+    description:
+      'NO edita la incidencia: escribe una resolución que la ' +
+      'referencia, porque vive dentro de un parte firmado. Es ' +
+      'idempotente: cerrar dos veces devuelve la misma resolución.',
+  })
+  resolveIncident(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-person-id') personId: string,
+    @Headers('x-person-name') personName: string,
+    @Body() body: { note?: string },
+  ) {
+    if (!personId || !UUID.test(personId)) {
+      throw new BadRequestException(
+        'Falta la cabecera X-Person-Id, o no es un identificador válido',
+      );
+    }
+
+    return this.logbook.resolve(
+      { personId, personName: (personName || 'Desconocido').slice(0, 120) },
+      id,
+      typeof body?.note === 'string' ? body.note : undefined,
+    );
+  }
+
   @Get('pending')
   @ApiOperation({
     summary: 'Incidencias sin cerrar, para quien entra al turno',

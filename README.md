@@ -96,7 +96,7 @@ siguen funcionando y los eventos esperan en la outbox. Ver
 | **shift-service** | Jornada laboral: estados de turno, línea de tiempo y horas. **Proyección de los eventos del Access Service**; no decide nada que abra una puerta. | schema `shift_svc` |
 | **vision-service** | Convierte píxeles en vectores. No conoce identidades ni toca la base de datos. | ninguna |
 | **voice-service** | Convierte audio en texto estructurado para la bitácora de relevo. **Devuelve borradores, no registros**; no conoce identidades ni toca la base de datos. | ninguna |
-| **logbook-service** | Dueño de la bitácora de relevo: partes ya **firmados**. Sin edición ni borrado; una corrección es un parte nuevo. | schema `logbook_svc` |
+| **logbook-service** | Dueño de la bitácora de relevo: partes ya **firmados**. Sin edición ni borrado; una corrección es un parte nuevo y cerrar una incidencia es una resolución nueva. | schema `logbook_svc` |
 
 ### Por qué las identidades están separadas así
 
@@ -1248,6 +1248,18 @@ turno anterior entero para enterarse de que el ascensor sigue roto. No
 filtra por persona a propósito, porque lo pendiente lo dejó otro. Sale
 en `/home` nada más identificarse, que es el momento exacto en que hace
 falta.
+
+Y se puede cerrar: `POST /me/logbook/incidents/:id/resolve`. **No edita
+la incidencia** —vive dentro de un parte firmado, y un parte firmado no
+se toca— sino que escribe una resolución que la referencia, igual que
+una corrección es un parte nuevo que apunta al anterior. Queda quién la
+cerró y cuándo. Cierra cualquiera, no solo quien la abrió, porque el del
+turno siguiente es justo quien puede comprobar que el ascensor ya
+funciona.
+
+Es idempotente a propósito: dos personas entrando a la vez pueden
+pulsar el botón en el mismo segundo, y la segunda recibe un éxito con
+`alreadyResolved`, no un error.
 
 Ver [ADR 0012](docs/adr/0012-bitacora-de-relevo.md).
 

@@ -38,6 +38,36 @@ Se comprueba que el parte corregido exista. Un puntero a un identificador
 inventado convertiría la cadena de correcciones en algo que no se puede
 seguir, que es justo lo que le da valor.
 
+### Cerrar una incidencia sigue la misma regla · 2026-09-14
+
+Una incidencia pendiente vive **dentro** de un parte firmado, así que
+marcarla como cerrada en su propia fila haría que el documento dijera
+algo distinto de lo que decía al firmarse. Cerrarla escribe una fila
+nueva en `incident_resolutions` que la referencia, y las dos quedan.
+
+Sin esto la lista de pendientes solo crecía: el ascensor roto de hace
+tres meses le seguía apareciendo a quien entra mañana, y una lista que
+nadie puede vaciar acaba siendo una que nadie lee. «Pendiente» pasa a
+ser dos condiciones y no una: que el parte la marcara como que requiere
+seguimiento, **y** que nadie la haya cerrado.
+
+Lo que se gana además de vaciar la lista es poder responder **quién la
+cerró y cuándo**, que con un booleano en `incidents` se habría perdido.
+
+**Cerrar es idempotente**, y eso no es comodidad de interfaz. Dos
+personas entrando al turno pueden pulsar el botón en el mismo segundo.
+Una restricción única sobre `incident_id` impide la segunda fila, y el
+servicio trata ese choque como éxito devolviendo la resolución que ya
+existe: el trabajo estaba hecho, y responder un error haría que la
+pantalla dijera que falló algo que salió bien. La comprobación previa no
+basta —entre leer y escribir cabe otra petición—, así que el caso se
+resuelve en el `catch` del `P2002` y tiene su prueba.
+
+**Cierra cualquiera, no solo quien la abrió.** Es lo que un relevo de
+turno significa: el del turno siguiente es precisamente quien puede
+comprobar que el ascensor ya funciona. Por eso queda escrito quién fue;
+sin esa firma, el botón sería uno de borrar.
+
 ## Decisión 3 — Quién firma sale del token, nunca del cuerpo
 
 `personId` y `personName` los pone el Gateway a partir del token de
