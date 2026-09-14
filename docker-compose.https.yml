@@ -1,0 +1,72 @@
+# ══════════════════════════════════════════════════════════════════
+#  Superposición: sirve la interfaz por HTTPS.
+#
+#      node scripts/generate-tls-cert.mjs
+#      docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+#
+#  POR QUE HACE FALTA
+#  ──────────────────
+#  La cámara del navegador solo funciona en un CONTEXTO SEGURO.
+#  `localhost` cuenta como tal por una excepción de la especificación,
+#  así que en la máquina que corre Docker todo va sin esto. Desde
+#  cualquier otra —un móvil, otro portátil de la red— el navegador se
+#  NIEGA a abrir la cámara, y el sistema entero deja de poder enseñarse.
+#
+#  POR QUE ES UNA SUPERPOSICION Y NO EL DEFECTO
+#  ────────────────────────────────────────────
+#  Porque depende de un certificado que NO está en el repositorio y que
+#  hay que generar antes. Un `docker compose up` recién clonado tiene que
+#  funcionar sin pasos previos; si esto fuera el defecto, fallaría con un
+#  error de nginx sobre un archivo que nadie sabe de dónde sale.
+#
+#  Mismo criterio que docker-compose.dns.yml: lo opcional se activa a
+#  mano y se documenta.
+# ══════════════════════════════════════════════════════════════════
+
+services:
+  frontend:
+    ports:
+      # El 80 sigue publicado: redirige a https. Quien escriba la
+      # dirección a mano no va a escribir el esquema, y un navegador que
+      # no conecta es mucho más difícil de diagnosticar que uno que
+      # salta solo.
+      - '${FRONTEND_PORT:-5173}:80'
+      - '${FRONTEND_TLS_PORT:-5443}:443'
+    environment:
+      # Lo usa el redirect del puerto 80. `$$host` no lleva puerto y
+      # `$$http_host` traería el del HTTP, así que sin esta variable la
+      # redirección manda a https://<ip>/ —puerto 443— donde no escucha
+      # nadie. Tiene que coincidir con el que se publica abajo.
+      FRONTEND_TLS_PORT: ${FRONTEND_TLS_PORT:-5443}
+      # Que envsubst sustituya SOLO esa. Sin el filtro tocaría también
+      # las variables de nginx que aparecen sin llaves ($$host, $$scheme,
+      # $$request_uri) si por casualidad existieran como variables de
+      # entorno, y el resultado sería una configuración con huecos.
+      NGINX_ENVSUBST_FILTER: FRONTEND_TLS_PORT
+    volumes:
+      # Va a `templates/` y no a `conf.d/`: la imagen de nginx sustituye
+      # las ${VARIABLES} al arrancar y escribe el resultado en
+      # conf.d/default.conf, reemplazando la configuración HTTP que trae
+      # la imagen.
+      #
+      # La de TLS es la misma salvo el bloque `server`: si tocas una
+      # `location` en frontend/nginx.conf, hay que tocarla igual en la
+      # otra.
+      - ./frontend/nginx-tls.conf.template:/etc/nginx/templates/default.conf.template:ro
+      # SOLO LECTURA, y con la clave privada dentro. El contenedor no
+      # tiene por qué poder modificar el certificado con el que se
+      # identifica.
+      - ./infrastructure/tls:/etc/nginx/tls:ro
+    healthcheck:
+      # Contra el 443 y con `--no-check-certificate`: el certificado es
+      # autofirmado, así que wget lo rechazaría y el contenedor se
+      # marcaría como enfermo estando perfectamente sano.
+      #
+      # Se comprueba contra 127.0.0.1 y no contra `localhost` por el
+      # mismo motivo que en el Dockerfile: dentro del contenedor,
+      # localhost resuelve primero a ::1 y nginx escucha en IPv4.
+      test:
+        ['CMD', 'wget', '-qO-', '--no-check-certificate', 'https://127.0.0.1/']
+      interval: 30s
+      timeout: 3s
+      retries: 3

@@ -10,7 +10,7 @@ import {
   Sandwich,
   Toilet,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { PendingIncidents } from '@/components/PendingIncidents';
@@ -64,6 +64,15 @@ const STATES: Record<
 };
 
 /**
+ * Movimientos que caben sin desbordar (`max-h-72` da para unos seis).
+ *
+ * Solo se usa para decidir si vale la pena enseñar el total en el
+ * encabezado: con cuatro entradas el numero no aporta nada, con quince
+ * es la unica pista de que la lista sigue hacia abajo.
+ */
+const TIMELINE_VISIBLE = 6;
+
+/**
  * Pantalla posterior a la autenticación.
  *
  * Muestra la jornada de quien acaba de identificarse, leída con el
@@ -83,6 +92,20 @@ export function HomePage() {
   const [today, setToday] = useState<WorkDay | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [changing, setChanging] = useState(false);
+  const timelineRef = useRef<HTMLOListElement>(null);
+
+  /**
+   * Deja la linea de tiempo abajo del todo, en lo mas reciente.
+   *
+   * Depende del NUMERO de entradas y no del objeto: `setToday` crea uno
+   * nuevo en cada refresco -al declarar un descanso, por ejemplo- y con
+   * el objeto como dependencia esto se ejecutaria en cada uno,
+   * arrastrando la lista hacia abajo mientras alguien la esta leyendo.
+   */
+  useEffect(() => {
+    const lista = timelineRef.current;
+    if (lista) lista.scrollTop = lista.scrollHeight;
+  }, [today?.entries.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -224,12 +247,35 @@ export function HomePage() {
           <PendingIncidents />
 
           {/* ── Línea de tiempo ──────────────────────────────── */}
+          {/*
+            LA LISTA DESBORDA POR DENTRO, NO LA PÁGINA.
+            Misma regla que el panel de operación: el encabezado tiene
+            que seguir visible mientras se recorre el histórico.
+
+            Aquí además hay un motivo propio. Una jornada con descansos
+            genera dos movimientos por cada café, y un turno largo pasa
+            de veinte con facilidad -13 h y 15 entradas en la prueba del
+            2026-09-14-. Sin tope, los botones de declarar descanso y de
+            dictar el parte se van tan abajo que dejan de existir para
+            quien mira esta pantalla dos segundos.
+
+            Se abre abajo del todo y no arriba: el orden es cronológico
+            y lo último que pasó es lo que importa al llegar.
+          */}
           {today && today.entries.length > 0 && (
             <section className="mt-7">
-              <h2 className="mb-3 text-xs font-medium tracking-widest text-white/35 uppercase">
-                Tu jornada
+              <h2 className="mb-3 flex items-baseline justify-between text-xs font-medium tracking-widest text-white/35 uppercase">
+                <span>Tu jornada</span>
+                {today.entries.length > TIMELINE_VISIBLE && (
+                  <span className="tracking-normal normal-case">
+                    {today.entries.length} movimientos
+                  </span>
+                )}
               </h2>
-              <ol className="space-y-0">
+              <ol
+                ref={timelineRef}
+                className="max-h-72 space-y-0 overflow-y-auto pr-1"
+              >
                 {today.entries.map((entry, index) => (
                   <Step
                     key={`${entry.at}-${index}`}

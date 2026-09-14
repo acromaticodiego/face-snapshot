@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   Req,
@@ -162,5 +163,31 @@ export class MeController {
   @ApiQuery({ name: 'days', required: false })
   pending(@Query('siteId') siteId?: string, @Query('days') days?: string) {
     return this.logbook.pending({ siteId, days });
+  }
+
+  @Post('logbook/incidents/:id/resolve')
+  @ApiOperation({
+    summary: 'Cierra una incidencia que dejó pendiente el turno anterior',
+    description:
+      'No edita nada: escribe una resolución que apunta a la ' +
+      'incidencia, porque esta vive dentro de un parte firmado y un ' +
+      'parte firmado no se toca. Quien cierra queda registrado.',
+  })
+  resolveIncident(
+    @Req() request: RequestWithSession,
+    @Param('id') id: string,
+    @Body() body: { note?: string },
+  ) {
+    // Quien cierra sale del token, igual que quien firma. Aquí importa
+    // tanto como allí: una resolución dice que alguien comprobó que el
+    // problema ya no está, y eso solo vale si se sabe quién lo dice.
+    return this.logbook.resolveIncident(
+      {
+        personId: request.session!.personId,
+        personName: request.session!.personName,
+      },
+      id,
+      typeof body?.note === 'string' ? body.note : undefined,
+    );
   }
 }

@@ -15,6 +15,17 @@ export type AuthPhase =
   | 'verifying'
   | 'granted'
   | 'denied'
+  /**
+   * La captura no parece una persona viva.
+   *
+   * Es una fase propia y no un `denied` mas porque en pantalla tiene
+   * que verse DISTINTA: un rostro no reconocido es un desconocido, y
+   * esto es un intento de suplantacion. Mezclarlos en el mismo color
+   * rojo haria que quien opera el sistema no pudiera distinguir «no te
+   * conozco» de «me estas ensenando una foto», que son dos incidentes
+   * de gravedad muy distinta.
+   */
+  | 'suspected'
   | 'error';
 
 interface UseFaceAuthOptions {
@@ -45,11 +56,25 @@ const MESSAGES: Record<AccessReason, string> = {
   OUTSIDE_SCHEDULE: 'Te reconocí, pero estás fuera de tu horario',
   ASSIGNMENT_EXPIRED: 'Te reconocí, pero tu acceso ha caducado',
   ACCESS_POINT_DISABLED: 'Esta puerta no está disponible',
-  // Deliberadamente vago con quien está delante. Si el mensaje dijera
-  // qué señal disparó la sospecha —el brillo de una pantalla, la falta
-  // de textura— estaría explicándole a quien lo intenta cómo evitarla
-  // en el siguiente intento.
-  LIVENESS_FAILED: 'No se pudo verificar la captura. Inténtalo de nuevo',
+  // DICE QUÉ PASÓ, PERO NO QUÉ SEÑAL SALTÓ, y la diferencia es todo.
+  //
+  // Nombrar la señal —el brillo de una pantalla, la falta de textura—
+  // sería explicarle a quien lo intenta cómo evitarla en el siguiente
+  // intento. Decir que la captura no parece una persona no le enseña
+  // nada que no acabe de deducir al ver que le reconoció la cara y no
+  // le abrió.
+  //
+  // La segunda mitad del mensaje existe por los FALSOS RECHAZOS, que
+  // están medidos y no son raros: el 2026-09-14, con la cámara de este
+  // despliegue, caras reales llegaron a puntuar 0.547 en frames movidos
+  // o con poca luz. A esa persona hay que darle algo que hacer, no una
+  // acusación: la puntuación correlaciona +0.47 con la nitidez, así que
+  // acercarse y estabilizarse es literalmente el arreglo.
+  //
+  // El panel del operador sí es explícito («La captura parece una foto
+  // o una pantalla»): ahí lo lee quien investiga, no quien está en la
+  // puerta.
+  LIVENESS_FAILED: 'No parece una persona real. Si eres tú, acércate y no te muevas',
   // No es un problema de permisos: la persona puede pasar, pero el
   // sistema no la ha visto salir. Decir "acceso denegado" a secas
   // haría que quien está delante buscase el error en su cara.
@@ -117,6 +142,8 @@ export function useFaceAuth({
       setPhase('searching');
     } else if (result.reason === 'INSUFFICIENT_VOTES') {
       setPhase('verifying');
+    } else if (result.reason === 'LIVENESS_FAILED') {
+      setPhase('suspected');
     } else if (
       result.reason === 'BELOW_THRESHOLD' ||
       result.reason.startsWith('NO_') ||

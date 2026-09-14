@@ -455,6 +455,22 @@ de tiempo.
 
 ### LO SIGUIENTE, POR ORDEN
 
+**0. Lo que se cerró el 2026-09-14**, para que no se rehaga:
+
+- **Cerrar incidencias de la bitácora.** La lista de pendientes solo
+  crecía. Ahora se cierra con una resolución que apunta a la incidencia,
+  sin tocar el parte firmado (ADR 0012).
+- **HTTPS y dirección de API relativa.** Era lo bloqueante: la cámara
+  no funciona fuera de `localhost` sin contexto seguro, así que el
+  sistema solo se podía usar en el equipo que lo corre.
+  `node scripts/generate-tls-cert.mjs` y el overlay
+  `docker-compose.https.yml`.
+- **Dos bugs de nginx que se tapaban entre sí.** Las cuatro cabeceras de
+  seguridad no se enviaban en NINGUNA respuesta —`add_header` no se
+  hereda hacia dentro y las tres `location` declaraban la suya—, y una
+  de esas cabeceras bloqueaba el micrófono, que el dictado del parte
+  necesita. Al arreglar la herencia habría aparecido el segundo.
+
 **1. ~~Fase 5, voz e IA~~ · COMPLETA.** `voice-service`,
 `logbook-service`, servidor MCP e interfaz, verificados contra el stack.
 Detalle abajo.

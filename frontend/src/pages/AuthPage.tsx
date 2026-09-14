@@ -3,6 +3,7 @@ import {
   Camera,
   CheckCircle2,
   ScanFace,
+  ShieldAlert,
   ShieldCheck,
   UserPlus,
   XCircle,
@@ -43,6 +44,12 @@ const PHASE_GLOW: Record<AuthPhase, string> = {
     'shadow-[0_0_0_1px_var(--color-vault-green),0_0_70px_-14px_var(--color-vault-green)]',
   denied:
     'shadow-[0_0_0_1px_var(--color-denied),0_0_70px_-16px_var(--color-denied)]',
+  // Mismo peso visual que `denied` pero en naranja: es una denegación,
+  // no un estado intermedio, y tiene que verse tan rotunda como la de
+  // un desconocido. El color es lo único que las separa, porque son
+  // dos incidentes distintos.
+  suspected:
+    'shadow-[0_0_0_1px_var(--color-vault-orange),0_0_70px_-14px_var(--color-vault-orange)]',
   error:
     'shadow-[0_0_0_1px_var(--color-denied),0_0_70px_-16px_var(--color-denied)]',
 };
@@ -148,6 +155,7 @@ export function AuthPage() {
                 sourceHeight={source.height}
                 videoRef={camera.videoRef}
                 mirrored
+                suspicious={auth.phase === 'suspected'}
               />
             )}
 
@@ -292,6 +300,13 @@ function StatusIcon({ phase }: { phase: AuthPhase }) {
   if (phase === 'denied' || phase === 'error')
     return (
       <XCircle className="h-5 w-5 shrink-0 text-denied drop-shadow-[0_0_8px_var(--color-denied)]" />
+    );
+  // Triángulo de aviso, no la cruz de denegado: lo que dice no es «no
+  // puedes pasar» sino «esto no parece una persona». El icono lo
+  // distingue incluso para quien no vea el color.
+  if (phase === 'suspected')
+    return (
+      <ShieldAlert className="h-5 w-5 shrink-0 text-vault-orange drop-shadow-[0_0_8px_var(--color-vault-orange)]" />
     );
   if (phase === 'verifying' || phase === 'detected')
     return (

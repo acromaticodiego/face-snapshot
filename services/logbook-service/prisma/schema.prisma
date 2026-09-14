@@ -214,8 +214,57 @@ model Incident {
 
   entry HandoverEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 
+  resolution IncidentResolution?
+
   @@index([entryId])
   @@index([requiresFollowUp])
   @@map("incidents")
+  @@schema("logbook_svc")
+}
+
+/// Que una incidencia dejo de estar pendiente.
+///
+/// POR QUE ES UNA FILA APARTE Y NO UNA COLUMNA EN `incidents`
+/// ─────────────────────────────────────────────────────────
+/// Porque un parte firmado NO SE EDITA (ADR 0012). Las incidencias
+/// viven dentro de un parte, y marcar una como cerrada tocando su fila
+/// haria que el documento dijera algo distinto de lo que decia cuando
+/// se firmo. Ese documento existe justo para lo contrario.
+///
+/// Es el mismo patron que ya usa `correctsEntryId`: un parte no se
+/// corrige encima, se corrige con otro que lo apunta. Aqui igual, una
+/// resolucion es un hecho NUEVO que referencia el anterior, y los dos
+/// quedan.
+///
+/// La consecuencia practica es que se puede responder «quien cerro
+/// esto y cuando», que con una columna booleana se habria perdido.
+model IncidentResolution {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// UNICA por incidencia: una incidencia se cierra una vez.
+  ///
+  /// No es un detalle de modelado. Dos personas entrando al turno a la
+  /// vez pueden pulsar el boton en el mismo segundo, y sin esta
+  /// restriccion quedarian dos resoluciones de la misma cosa con
+  /// autores distintos. La base de datos lo impide, y el servicio
+  /// trata el choque como exito: el trabajo ya estaba hecho.
+  incidentId String @unique @map("incident_id") @db.Uuid
+
+  /// Quien la cerro. Sale del token de sesion facial, no del cuerpo de
+  /// la peticion, por el mismo motivo que quien firma un parte.
+  personId   String @map("person_id") @db.Uuid
+  personName String @map("person_name") @db.VarChar(120)
+
+  /// Que se hizo, en una linea. Opcional a proposito: obligar a
+  /// escribir algo para cerrar «bombilla del pasillo cambiada» hace que
+  /// la gente deje de cerrarlas, y una lista que nadie cierra es la que
+  /// teniamos.
+  note String? @db.VarChar(500)
+
+  resolvedAt DateTime @default(now()) @map("resolved_at") @db.Timestamptz(6)
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@map("incident_resolutions")
   @@schema("logbook_svc")
 }

@@ -797,7 +797,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "Sospechas de suplantación",
-      "description": "Frames en los que la captura no parecía una persona, por motivo. EN MODO SOFT -el de por defecto- ESTE PANEL ES LO UNICO QUE QUEDA de la sospecha, porque el acceso se concede igual. Es la fuente con la que calibrar los umbrales antes de encender HARD: si aquí aparece tráfico constante sin que nadie esté atacando nada, los umbrales están mal puestos y encender la denegación dejaría gente en la calle. Poco detalle apunta a una reimpresión; un patrón periódico, a una pantalla.",
+      "description": "Frames en los que el modelo no vio una persona delante de la camara, por motivo. Lo que cuenta este panel es CUANTAS sospechas hubo; por cuanto se quedaron lo dice el panel de al lado, y con HARD encendido esa es la pregunta importante. EN MODO SOFT ESTE PANEL ES LO UNICO QUE QUEDA de la sospecha, porque el acceso se concede igual; en HARD, cada punto de aqui es una puerta que no abrio. Trafico constante sin que nadie este atacando nada significa que el umbral esta mal puesto y se esta dejando gente en la calle: comprueba en el panel de la distribucion si esas puntuaciones estan cayendo justo por debajo de 0.60 o si son ataques de verdad, que marcan cerca de cero.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -834,7 +834,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "PERIODIC_PATTERN"
+              "options": "SPOOF_MODEL"
             },
             "properties": [
               {
@@ -842,21 +842,6 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "#d95926"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "LOW_DETAIL"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "#3987e5"
                 }
               }
             ]
@@ -877,6 +862,69 @@
           "mode": "multi",
           "sort": "desc"
         }
+      }
+    },
+    {
+      "id": 11,
+      "type": "heatmap",
+      "title": "Distribucion de la puntuacion de vida",
+      "description": "Probabilidad de cara real que midio MiniFASNet en cada frame con rostro, a lo largo del tiempo. El corte esta en 0.60 (LIVENESS_MIN_SPOOF_SCORE). A DIFERENCIA DEL MAPA DE SIMILITUDES, ESTE SI PUEDE ENSENAR SOLAPAMIENTO, y por eso es el que hay que mirar: la puntuacion se registra ANTES de decidir y con independencia de lo que se decida, asi que las dos poblaciones -caras reales y ataques- aparecen enteras. Lo sano es ver dos bandas separadas por una franja vacia: los ataques pegados a cero y las caras reales por encima de 0.95. LA SENAL DE ALARMA es que la banda de arriba empiece a bajar hacia 0.60. Eso no son ataques: son personas reales que estan a un cambio de luz de quedarse fuera, y en HARD eso es una puerta que no abre. Medido el 2026-09-14 sobre 78 imagenes, la franja entre 0.539 y 0.777 estaba vacia.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (le) (increase(acceso_puntuacion_de_vida_bucket[$__rate_interval]))",
+          "format": "heatmap",
+          "legendFormat": "{{le}}"
+        }
+      ],
+      "options": {
+        "calculate": false,
+        "cellGap": 2,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Blues",
+          "steps": 24,
+          "reverse": false,
+          "exponent": 0.5,
+          "fill": "#3987e5"
+        },
+        "yAxis": {
+          "unit": "short",
+          "decimals": 2,
+          "axisLabel": "probabilidad de cara real"
+        },
+        "legend": {
+          "show": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "yHistogram": true
+        },
+        "exemplars": {
+          "color": "#e66767"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            }
+          }
+        },
+        "overrides": []
       }
     }
   ]

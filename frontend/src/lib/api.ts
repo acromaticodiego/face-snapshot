@@ -652,6 +652,24 @@ export const api = {
     return request(`/me/logbook/pending?days=${days}`);
   },
 
+  /**
+   * Cierra una incidencia pendiente.
+   *
+   * No edita nada: el servidor escribe una resolución que apunta a la
+   * incidencia, porque esta vive dentro de un parte firmado. Es
+   * idempotente, así que pulsar dos veces no es un error.
+   */
+  async resolveIncident(
+    incidentId: string,
+    note?: string,
+  ): Promise<{ alreadyResolved: boolean }> {
+    return request(`/me/logbook/incidents/${incidentId}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    });
+  },
+
   // ── Panel de operacion (exige token de administrador) ─────────
 
   async presence(): Promise<PresenceResponse> {

@@ -96,7 +96,7 @@ siguen funcionando y los eventos esperan en la outbox. Ver
 | **shift-service** | Jornada laboral: estados de turno, línea de tiempo y horas. **Proyección de los eventos del Access Service**; no decide nada que abra una puerta. | schema `shift_svc` |
 | **vision-service** | Convierte píxeles en vectores. No conoce identidades ni toca la base de datos. | ninguna |
 | **voice-service** | Convierte audio en texto estructurado para la bitácora de relevo. **Devuelve borradores, no registros**; no conoce identidades ni toca la base de datos. | ninguna |
-| **logbook-service** | Dueño de la bitácora de relevo: partes ya **firmados**. Sin edición ni borrado; una corrección es un parte nuevo. | schema `logbook_svc` |
+| **logbook-service** | Dueño de la bitácora de relevo: partes ya **firmados**. Sin edición ni borrado; una corrección es un parte nuevo y cerrar una incidencia es una resolución nueva. | schema `logbook_svc` |
 
 ### Por qué las identidades están separadas así
 
@@ -1020,10 +1020,36 @@ Se guardan en claro. Existen ataques de reconstrucción facial a partir
 de embeddings, así que en producción conviene cifrado a nivel de columna
 o de disco.
 
-#### 6. Sin HTTPS
+#### 6. ~~Sin HTTPS~~ — resuelto para desarrollo, pendiente para producción
 
-La configuración es de desarrollo. En producción hacen falta TLS y un
-proxy inverso: la cámara exige contexto seguro fuera de `localhost`.
+Ya se puede servir la interfaz por TLS, y con eso el sistema deja de
+funcionar solo en la máquina que corre Docker:
+
+```bash
+node scripts/generate-tls-cert.mjs
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+```
+
+Era **bloqueante** y no cosmético: la cámara del navegador solo funciona
+en un contexto seguro, y `localhost` cuenta por una excepción de la
+especificación. Desde un móvil o desde otro portátil de la red, el
+navegador se negaba a abrirla y no había forma de enseñar el sistema
+fuera del equipo que lo ejecuta.
+
+Dos cosas cambiaron para que esto fuera posible. La primera es que **la
+dirección de la API pasó a ser relativa**: nginx sirve `/api/` en el
+mismo origen que la página, así que el bundle ya no lleva incrustado un
+`http://localhost:3000` que solo resolvía en una máquina —y que, en una
+página `https`, el navegador habría bloqueado por contenido mixto—. De
+paso desaparece el CORS del navegador, porque ya no hay dos orígenes.
+
+El certificado es **autofirmado** y lleva en el `subjectAltName` todas
+las IPv4 de la máquina, que es lo único que los navegadores miran desde
+2017. Hay que aceptar la excepción una vez por dispositivo; después el
+origen cuenta como seguro y la cámara funciona.
+
+Lo que queda para producción es sustituirlo por un certificado de una
+autoridad reconocida. El montaje no cambia.
 
 #### 7. El Shift Service no escala horizontalmente
 
@@ -1249,6 +1275,18 @@ filtra por persona a propósito, porque lo pendiente lo dejó otro. Sale
 en `/home` nada más identificarse, que es el momento exacto en que hace
 falta.
 
+Y se puede cerrar: `POST /me/logbook/incidents/:id/resolve`. **No edita
+la incidencia** —vive dentro de un parte firmado, y un parte firmado no
+se toca— sino que escribe una resolución que la referencia, igual que
+una corrección es un parte nuevo que apunta al anterior. Queda quién la
+cerró y cuándo. Cierra cualquiera, no solo quien la abrió, porque el del
+turno siguiente es justo quien puede comprobar que el ascensor ya
+funciona.
+
+Es idempotente a propósito: dos personas entrando a la vez pueden
+pulsar el botón en el mismo segundo, y la segunda recibe un éxito con
+`alreadyResolved`, no un error.
+
 Ver [ADR 0012](docs/adr/0012-bitacora-de-relevo.md).
 
 ---
@@ -1441,9 +1479,21 @@ fabrica el Collector a partir de las propias trazas.
 |---|---|
 | `acceso_decisiones_total{motivo,sede,zona}` | Por qué se deniega |
 | `acceso_similitud` | Distribución frente al umbral |
+| `acceso_sospechas_de_vida_total{motivo,modo}` | **Cuántas** sospechas de suplantación |
+| `acceso_puntuacion_de_vida` | **Por cuánto**: distribución frente a `LIVENESS_MIN_SPOOF_SCORE` |
 | `outbox_retraso_segundos` | **La alarma importante**: edad del evento sin publicar más viejo |
 | `outbox_eventos_pendientes` | Cola del emisor |
 | `shift_consumidor_pendientes` | Cola del consumidor |
+
+Las dos de la detección de vida responden preguntas distintas, y con
+`HARD` encendido hace falta la segunda. El contador dice cuántas
+sospechas hubo; el histograma dice por cuánto se quedaron. Una cara real
+que entra con 0.62 y otra que entra con 0.99 son idénticas en el
+contador —las dos entraron— y no son la misma situación: la primera está
+a un cambio de luz de quedarse fuera. El histograma es además el único
+panel que **puede** mostrar solapamiento entre ataques y caras reales,
+porque la puntuación se registra antes de decidir y con independencia de
+lo que se decida.
 
 Las dos últimas miden averías **distintas**: una dice «no sale del
 emisor», la otra «sale pero no se consume». Y ambas cubren el mismo

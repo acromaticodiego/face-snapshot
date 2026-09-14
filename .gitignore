@@ -5,6 +5,16 @@
 *.pem
 *.key
 
+# El certificado TLS de desarrollo, entero.
+#
+# La clave ya la cubre `*.key`, pero el .crt tampoco debe entrar: no es
+# secreto -un certificado es publico por definicion- sino que es de ESTA
+# maquina. Lleva dentro su nombre y sus IPs, asi que a cualquier otra
+# persona le serviria para nada y ademas le taparia el suyo.
+#
+# Se genera con `node scripts/generate-tls-cert.mjs`.
+/infrastructure/tls/
+
 # ── Node ──────────────────────────────────────────────────────────
 node_modules/
 dist/

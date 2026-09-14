@@ -564,7 +564,10 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000/api/v1}
+        # Relativa: nginx sirve /api/ en el mismo origen (ver
+        # frontend/nginx.conf). Asi la interfaz funciona desde otra
+        # maquina de la red, y no solo desde la que corre Docker.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
         VITE_TERMINAL_KEY: ${VITE_TERMINAL_KEY:-main-entrance}
     container_name: detector-frontend
     restart: unless-stopped

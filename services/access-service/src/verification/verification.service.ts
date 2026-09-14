@@ -236,12 +236,37 @@ export class VerificationService {
     // 0014), pero ese ataque era una persona y un móvil. Sin foto
     // impresa ni vídeo en pantalla, lo que se sabe es que funciona
     // contra lo que se probó, no contra lo que entrará por la puerta.
+    // La puntuación se registra SIEMPRE, no solo cuando hay sospecha.
+    // El contador de sospechas dice cuántas hubo; el histograma dice por
+    // cuánto, y con HARD encendido esa es la pregunta: una cara real que
+    // entra con 0.62 está a un cambio de luz de quedarse fuera, y en el
+    // contador no aparece porque entró.
+    //
+    // Va AQUI y no en el controlador, al revés que `registrarSimilitud`.
+    // Aquella se mide sobre el resultado devuelto porque la confianza
+    // sale por diez y pico returns distintos y un contador repartido se
+    // desincroniza. Esta tiene un solo punto donde la evidencia existe
+    // -este-, así que llevarla al resultado obligaría a arrastrar un
+    // campo nuevo por cada `deny()`: más sitios donde equivocarse, no
+    // menos.
+    const puntuacion = face.liveness?.spoofScore;
+    if (typeof puntuacion === 'number' && Number.isFinite(puntuacion)) {
+      this.metrics.registrarPuntuacionDeVida(puntuacion);
+    }
+
     const vida = judgeFrame(face.liveness, this.liveness);
     if (vida.suspicious) {
       this.metrics.registrarSospechaDeVida(vida.reason, this.liveness.mode);
+      // El número va en el mensaje a propósito. Sin él, «sospecha de
+      // suplantación» no distingue un ataque evidente (0.0001) de una
+      // cara real que se quedó corta (0.58), y en HARD esas dos cosas
+      // exigen reacciones opuestas: una confirma que funciona y la otra
+      // es alguien que no pudo entrar.
       this.logger.warn(
         `Sospecha de suplantación (${vida.reason}) en ${point.siteName}/` +
-          `${point.zoneName} · modo ${this.liveness.mode}`,
+          `${point.zoneName} · modo ${this.liveness.mode}` +
+          ` · puntuación ${puntuacion?.toFixed(4) ?? 'ausente'}` +
+          ` (mínimo ${this.liveness.minSpoofScore})`,
       );
 
       if (this.liveness.mode === 'HARD') {

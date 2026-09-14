@@ -550,6 +550,28 @@ export class LogbookServiceClient extends BaseServiceClient {
     }
   }
 
+  async resolveIncident(
+    actor: { personId: string; personName: string },
+    incidentId: string,
+    note?: string,
+  ) {
+    try {
+      const { data } = await this.http.post(
+        `/api/v1/handovers/incidents/${incidentId}/resolve`,
+        { note },
+        {
+          headers: {
+            'x-person-id': actor.personId,
+            'x-person-name': actor.personName,
+          },
+        },
+      );
+      return data;
+    } catch (e) {
+      this.fail(e, 'No se pudo cerrar la incidencia');
+    }
+  }
+
   async health() {
     const { data } = await this.http.get('/api/v1/health', { timeout: 3000 });
     return data;
