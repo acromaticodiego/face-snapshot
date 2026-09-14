@@ -1441,9 +1441,21 @@ fabrica el Collector a partir de las propias trazas.
 |---|---|
 | `acceso_decisiones_total{motivo,sede,zona}` | Por qué se deniega |
 | `acceso_similitud` | Distribución frente al umbral |
+| `acceso_sospechas_de_vida_total{motivo,modo}` | **Cuántas** sospechas de suplantación |
+| `acceso_puntuacion_de_vida` | **Por cuánto**: distribución frente a `LIVENESS_MIN_SPOOF_SCORE` |
 | `outbox_retraso_segundos` | **La alarma importante**: edad del evento sin publicar más viejo |
 | `outbox_eventos_pendientes` | Cola del emisor |
 | `shift_consumidor_pendientes` | Cola del consumidor |
+
+Las dos de la detección de vida responden preguntas distintas, y con
+`HARD` encendido hace falta la segunda. El contador dice cuántas
+sospechas hubo; el histograma dice por cuánto se quedaron. Una cara real
+que entra con 0.62 y otra que entra con 0.99 son idénticas en el
+contador —las dos entraron— y no son la misma situación: la primera está
+a un cambio de luz de quedarse fuera. El histograma es además el único
+panel que **puede** mostrar solapamiento entre ataques y caras reales,
+porque la puntuación se registra antes de decidir y con independencia de
+lo que se decida.
 
 Las dos últimas miden averías **distintas**: una dice «no sale del
 emisor», la otra «sale pero no se consume». Y ambas cubren el mismo

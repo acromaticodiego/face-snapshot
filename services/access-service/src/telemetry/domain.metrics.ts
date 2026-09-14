@@ -72,6 +72,32 @@ export class DomainMetrics {
         'Frames en los que la captura no parecia una persona, por motivo',
     });
 
+  /**
+   * La puntuacion de vida de cada frame con rostro.
+   *
+   * El contador de arriba dice CUANTAS sospechas hubo; este dice POR
+   * CUANTO, que es otra pregunta y la que hace falta con HARD
+   * encendido. Una cara real que entra con 0.62 y otra que entra con
+   * 0.99 cuentan igual en el contador y no son la misma situacion: la
+   * primera esta a un cambio de luz de quedarse fuera.
+   *
+   * Es el mismo papel que `acceso_similitud` cumple para el umbral de
+   * reconocimiento, y por eso los limites estan igual de apretados
+   * alrededor del corte (0.60). Fuera de esa franja da lo mismo que un
+   * ataque marque 0.001 o 0.05.
+   */
+  private readonly puntuacionDeVida = metrics
+    .getMeter('access-service')
+    .createHistogram('acceso_puntuacion_de_vida', {
+      description:
+        'Probabilidad de cara real que midio el modelo en cada frame con rostro',
+      advice: {
+        explicitBucketBoundaries: [
+          0.0, 0.05, 0.2, 0.4, 0.5, 0.55, 0.6, 0.65, 0.7, 0.8, 0.9, 0.95,
+        ],
+      },
+    });
+
   constructor(private readonly prisma: PrismaService) {
     this.registrarObservables();
   }
@@ -95,6 +121,19 @@ export class DomainMetrics {
    */
   registrarSimilitud(valor: number): void {
     this.similitud.record(valor);
+  }
+
+  /**
+   * La puntuacion de vida de un frame.
+   *
+   * Solo se llama cuando el Vision Service la envio. Un Vision Service
+   * anterior a la Fase 6 no la manda, y el actual la manda AUSENTE
+   * cuando no pudo medirla: registrar un 0 en esos casos fabricaria un
+   * ataque perfecto por cada fallo de medida y correria la
+   * distribucion justo en la zona donde se decide.
+   */
+  registrarPuntuacionDeVida(valor: number): void {
+    this.puntuacionDeVida.record(valor);
   }
 
   /**
