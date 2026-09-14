@@ -1020,10 +1020,36 @@ Se guardan en claro. Existen ataques de reconstrucción facial a partir
 de embeddings, así que en producción conviene cifrado a nivel de columna
 o de disco.
 
-#### 6. Sin HTTPS
+#### 6. ~~Sin HTTPS~~ — resuelto para desarrollo, pendiente para producción
 
-La configuración es de desarrollo. En producción hacen falta TLS y un
-proxy inverso: la cámara exige contexto seguro fuera de `localhost`.
+Ya se puede servir la interfaz por TLS, y con eso el sistema deja de
+funcionar solo en la máquina que corre Docker:
+
+```bash
+node scripts/generate-tls-cert.mjs
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+```
+
+Era **bloqueante** y no cosmético: la cámara del navegador solo funciona
+en un contexto seguro, y `localhost` cuenta por una excepción de la
+especificación. Desde un móvil o desde otro portátil de la red, el
+navegador se negaba a abrirla y no había forma de enseñar el sistema
+fuera del equipo que lo ejecuta.
+
+Dos cosas cambiaron para que esto fuera posible. La primera es que **la
+dirección de la API pasó a ser relativa**: nginx sirve `/api/` en el
+mismo origen que la página, así que el bundle ya no lleva incrustado un
+`http://localhost:3000` que solo resolvía en una máquina —y que, en una
+página `https`, el navegador habría bloqueado por contenido mixto—. De
+paso desaparece el CORS del navegador, porque ya no hay dos orígenes.
+
+El certificado es **autofirmado** y lleva en el `subjectAltName` todas
+las IPv4 de la máquina, que es lo único que los navegadores miran desde
+2017. Hay que aceptar la excepción una vez por dispositivo; después el
+origen cuenta como seguro y la cámara funciona.
+
+Lo que queda para producción es sustituirlo por un certificado de una
+autoridad reconocida. El montaje no cambia.
 
 #### 7. El Shift Service no escala horizontalmente
 

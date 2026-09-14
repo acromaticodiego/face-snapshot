@@ -77,13 +77,18 @@ const ignored = run(
   //
   // `datasets/` guarda los conjuntos de ataque con los que se mide la
   // deteccion de vida, y son ROSTROS DE PERSONAS CONCRETAS: estan
-  // excluidos del repositorio a proposito y no deben entrar nunca. Sin
-  // esta linea, esta comprobacion se pone en rojo en cuanto alguien
-  // graba un conjunto con `scripts/capture-attack-set.mjs`, y un aviso
-  // que salta siempre acaba siendo un aviso que nadie lee.
+  // excluidos del repositorio a proposito y no deben entrar nunca.
+  //
+  // `infrastructure/tls/` es el certificado de desarrollo, con su clave
+  // privada. Tampoco entra, y ademas es de UNA maquina: lleva dentro su
+  // nombre y sus IPs. Se genera con `node scripts/generate-tls-cert.mjs`.
+  //
+  // Sin estas dos, la comprobacion se pone en rojo en cuanto alguien
+  // graba un conjunto o genera un certificado, y un aviso que salta
+  // siempre acaba siendo un aviso que nadie lee.
   .filter(
     (path) =>
-      !/node_modules|\.venv|dist\/|__pycache__|\.env|coverage|tsbuildinfo|\.git\/|^datasets\//.test(
+      !/node_modules|\.venv|dist\/|__pycache__|\.env|coverage|tsbuildinfo|\.git\/|^datasets\/|^infrastructure\/tls\//.test(
         path,
       ),
   );

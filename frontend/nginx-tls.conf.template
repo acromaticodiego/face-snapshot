@@ -1,0 +1,91 @@
+# La misma interfaz, servida por HTTPS.
+#
+# Sustituye a nginx.conf cuando se levanta con el overlay
+# docker-compose.https.yml. Es una copia con el bloque `server` cambiado
+# y NO una configuracion distinta: si tocas una location en nginx.conf,
+# esta hay que tocarla igual.
+#
+# POR QUE EXISTE
+# La camara del navegador solo funciona en contexto seguro. `localhost`
+# cuenta por una excepcion de la especificacion, asi que sin esto el
+# sistema solo se puede usar sentado delante del equipo que lo corre.
+
+# ES UNA PLANTILLA, no una configuracion.
+#
+# La imagen de nginx sustituye las ${VARIABLES} de /etc/nginx/templates/
+# al arrancar. Aqui hace falta por una sola: el PUERTO al que redirigir.
+#
+# `$host` no incluye el puerto y `$http_host` traeria el del HTTP (5173),
+# asi que sin esto el redirect manda a https://<ip>/ -puerto 443- donde
+# no escucha nadie. Se probo y fallaba exactamente asi.
+#
+# `NGINX_ENVSUBST_FILTER` en el overlay limita la sustitucion a esa
+# variable, para que envsubst no toque las de nginx ($host, $scheme,
+# $request_uri...).
+
+# El puerto 80 no sirve nada: redirige.
+#
+# Se deja abierto a proposito en lugar de cerrarlo, porque quien escriba
+# la direccion a mano no va a escribir el `https://`, y un navegador que
+# no conecta es mucho mas dificil de diagnosticar que uno que salta a
+# https solo.
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$host:${FRONTEND_TLS_PORT}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/tls/servidor.crt;
+    ssl_certificate_key /etc/nginx/tls/servidor.key;
+
+    # Solo TLS 1.2 y 1.3. Las versiones anteriores estan rotas y
+    # ningun navegador que sirva para esto las necesita.
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location /api/ {
+        resolver 127.0.0.11 valid=10s ipv6=off;
+        set $gateway api-gateway;
+        proxy_pass http://$gateway:3000$request_uri;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        client_max_body_size 25m;
+        proxy_read_timeout 60s;
+
+        include /etc/nginx/conf.d/security-headers.conf;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+        include /etc/nginx/conf.d/security-headers.conf;
+    }
+
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        include /etc/nginx/conf.d/security-headers.conf;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache, must-revalidate";
+        include /etc/nginx/conf.d/security-headers.conf;
+    }
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+}
