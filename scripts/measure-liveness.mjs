@@ -36,7 +36,20 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DIRECTORIO = join(process.cwd(), 'datasets', 'liveness');
-const DESTINO = '/tmp/conjunto-vida';
+
+/**
+ * Ruta UNICA por ejecucion dentro del contenedor.
+ *
+ * Con una ruta fija, dos medidas a la vez se pisan: la que termina
+ * primero borra el conjunto en su limpieza y la otra se cae a mitad con
+ * un «No such file or directory» sobre una imagen que acababa de
+ * listar. Paso de verdad, con dos terminales abiertos.
+ *
+ * No es un caso rebuscado: medir tarda un par de minutos, y lo natural
+ * mientras tanto es abrir otra ventana y probar algo.
+ */
+const EJECUCION = `${Date.now().toString(36)}-${process.pid}`;
+const DESTINO = `/tmp/vida-${EJECUCION}`;
 
 /**
  * El medidor viaja con los datos, en vez de confiar en que este en la
@@ -59,7 +72,7 @@ const MEDIDOR = join(
   'scripts',
   'medir_vida.py',
 );
-const MEDIDOR_DESTINO = '/tmp/medir_vida.py';
+const MEDIDOR_DESTINO = `/tmp/medir-${EJECUCION}.py`;
 const CLASES = ['real', 'pantalla'];
 
 function contar(clase, variante) {
@@ -139,11 +152,6 @@ const docker = (args, opciones = {}) =>
   });
 
 try {
-  // Se limpia ANTES por si quedo algo de una pasada anterior: copiar
-  // sobre un directorio existente lo anida dentro, y se mediria el
-  // conjunto viejo sin enterarse.
-  limpiar();
-
   docker(['compose', 'cp', DIRECTORIO, `vision-service:${DESTINO}`], {
     stdio: 'ignore',
   });
@@ -186,11 +194,11 @@ try {
  * Vision Service corre con un usuario sin privilegios: un `rm` normal
  * falla con «Permission denied» y deja los archivos puestos.
  *
- * Eso no seria solo suciedad. La limpieza de ANTES de copiar existe
- * porque `cp` sobre un directorio que ya existe lo ANIDA dentro, asi
- * que una segunda pasada mediria el conjunto de la primera sin que
- * nadie se entere. Con el borrado fallando en silencio, esa proteccion
- * no protegia nada.
+ * Eso no seria solo suciedad: `cp` sobre un directorio que ya existe lo
+ * ANIDA dentro, asi que basura de una pasada anterior se acabaria
+ * midiendo. Con la ruta unica por ejecucion eso ya no puede pasar, pero
+ * sin limpiar se irian acumulando conjuntos de rostros dentro del
+ * contenedor, que es justo lo que este proyecto evita en todas partes.
  */
 function limpiar() {
   try {
